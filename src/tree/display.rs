@@ -171,9 +171,57 @@ impl Default for DisplayTree {
     }
 }
 
+/// Build a display tree with `count` equal-width horizontal zones (zone IDs 0..count).
+pub fn build_equal_hsplit(count: usize) -> DisplayNode {
+    assert!(count > 0, "need at least one zone");
+    build_zones(0, count)
+}
+
+fn build_zones(start: usize, count: usize) -> DisplayNode {
+    if count == 1 {
+        DisplayNode::zone(start)
+    } else {
+        // ratio = 1/count gives equal widths when applied recursively
+        let ratio = 1.0 / count as f32;
+        DisplayNode::hsplit(
+            ratio,
+            DisplayNode::zone(start),
+            build_zones(start + 1, count - 1),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_build_equal_hsplit_one() {
+        let node = build_equal_hsplit(1);
+        let zones = node.subdivide(Rect::new(0, 0, 1920, 1080));
+        assert_eq!(zones.len(), 1);
+        assert_eq!(zones[0], Rect::new(0, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn test_build_equal_hsplit_two() {
+        let node = build_equal_hsplit(2);
+        let zones = node.subdivide(Rect::new(0, 0, 1920, 1080));
+        assert_eq!(zones.len(), 2);
+        assert_eq!(zones[0], Rect::new(0, 0, 960, 1080));
+        assert_eq!(zones[1], Rect::new(960, 0, 960, 1080));
+    }
+
+    #[test]
+    fn test_build_equal_hsplit_three() {
+        let node = build_equal_hsplit(3);
+        let zones = node.subdivide(Rect::new(0, 0, 900, 600));
+        assert_eq!(zones.len(), 3);
+        // 1/3 of 900 = 300 each
+        assert_eq!(zones[0], Rect::new(0, 0, 300, 600));
+        assert_eq!(zones[1], Rect::new(300, 0, 300, 600));
+        assert_eq!(zones[2], Rect::new(600, 0, 300, 600));
+    }
 
     #[test]
     fn test_single_zone() {

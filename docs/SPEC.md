@@ -8,7 +8,7 @@ January 2026
 
 Hayashi is a Wayland compositor built on Smithay that implements nested, hierarchical workspaces. The name (林, Japanese for "grove") reflects its core architecture: two interconnected trees that manage display geometry and workspace hierarchy separately.
 
-Unlike traditional tiling window managers that offer flat workspace lists (workspace 1-10), Hayashi allows workspaces to contain other workspaces, enabling project-based organization. A "CSR" project workspace might contain terminal, browser, and editor sub-workspaces. Switching projects changes everything; switching within a project preserves context.
+Unlike traditional tiling window managers that offer flat workspace lists (workspace 1-10), Hayashi allows workspaces to contain other workspaces, enabling project-based organization. A "Node.js" project workspace might contain terminal, browser, and editor sub-workspaces. Switching projects changes everything; switching within a project preserves context.
 
 ## Design Philosophy
 
@@ -77,7 +77,7 @@ Children:
   - Projects: claims [0,1,3]  (L-shape)
 ```
 
-Each workspace inherits zones from its parent and can subdivide them independently. The CSR workspace might split its L-shaped region differently than the Flutter workspace, even though both claim the same parent zones.
+Each workspace inherits zones from its parent and can subdivide them independently. The Node.js workspace might split its L-shaped region differently than the Flutter workspace, even though both claim the same parent zones.
 
 ### Data Flow
 
@@ -130,7 +130,7 @@ Pressing a letter while peeking searches upward through the workspace tree for a
 
 ### Search-or-Create
 
-If no matching workspace is found, Hayashi creates a new workspace at the current tree level with the searched name and spawns the configured launcher (fuzzel/rofi/wofi) to select an application.
+If no matching workspace is found, Hayashi creates a new workspace at the original tree level with the searched name and spawns the configured launcher (fuzzel/rofi/wofi) to select an application. Look at KEYBINDINGS.md for more information.
 
 ## Window Management
 

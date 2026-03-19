@@ -2,8 +2,7 @@
 
 A Wayland compositor with nested hierarchical workspaces.
 
-**Status:** Milestone 1 complete (winit backend, single window display)
-
+**Status:** Milestone 4: Nested workspaces (incomplete), switching between workspaces
 ## The Idea
 
 Unlike traditional tiling window managers with flat workspace lists (1-10), Hayashi allows workspaces to contain other workspaces. A "Node.js" project workspace might contain terminal, browser, and editor sub-workspaces. Switching projects changes everything; switching within a project preserves context.
@@ -37,6 +36,7 @@ cargo build
 ## Development
 
 See `docs/SPEC.md` for the full technical specification.
+See `docs/KEYBINDINGS.md` for the default keybindings, along with clarification on some of the more complex behaviors.
 
 ### Milestones
 
@@ -53,7 +53,7 @@ See `docs/SPEC.md` for the full technical specification.
 
 ### Getting Started
 
-The `src/backend/mod.rs` file has guidance for milestone 1. Start by studying [smallvil](https://github.com/Smithay/smithay/tree/master/smallvil), Smithay's minimal example compositor.
+The display tree (`src/tree/display.rs`) drives window geometry. When windows are mapped, `Hayashi::relayout()` rebuilds the display tree and repositions windows into equal-width zones.
 
 ## License
 

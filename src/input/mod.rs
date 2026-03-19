@@ -2,9 +2,11 @@
 //!
 //! Implements the "peek before commit" interaction model.
 
+mod action;
 mod navigation;
 mod process;
 
+pub use action::Action;
 pub use navigation::{Mode, PeekState};
 
 /// Key modifiers.

@@ -6,5 +6,5 @@
 mod display;
 mod workspace;
 
-pub use display::{Direction, DisplayNode, DisplayTree, Rect, ZoneId};
+pub use display::{build_equal_hsplit, Direction, DisplayNode, DisplayTree, Rect, ZoneId};
 pub use workspace::{Content, Workspace, WorkspaceTree};

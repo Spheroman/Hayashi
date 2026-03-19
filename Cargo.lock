@@ -597,6 +597,7 @@ dependencies = [
  "tracing-subscriber",
  "wayland-protocols",
  "wayland-server",
+ "xkbcommon",
 ]
 
 [[package]]

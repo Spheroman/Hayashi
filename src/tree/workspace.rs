@@ -171,6 +171,39 @@ impl WorkspaceTree {
         path
     }
 
+    /// Get the parent of a workspace node.
+    pub fn parent(&self, idx: usize) -> Option<usize> {
+        self.nodes[idx].parent
+    }
+
+    /// Get the first child of a workspace node.
+    pub fn first_child(&self, idx: usize) -> Option<usize> {
+        match &self.nodes[idx].content {
+            Content::Children(children) => children.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// Get the name of a workspace node.
+    pub fn name(&self, idx: usize) -> Option<char> {
+        self.nodes[idx].name
+    }
+
+    /// Format the full path from root to a workspace as a string.
+    /// e.g. "root > a > b"
+    pub fn path_string(&self, idx: usize) -> String {
+        self.path_to(idx)
+            .iter()
+            .map(|&i| {
+                self.nodes[i]
+                    .name
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "root".to_string())
+            })
+            .collect::<Vec<_>>()
+            .join(" > ")
+    }
+
     /// Compute the rectangles for a workspace given inherited geometry.
     pub fn compute_rects(&self, idx: usize, inherited: &[Rect]) -> Vec<Rect> {
         let ws = &self.nodes[idx];
@@ -246,5 +279,48 @@ mod tests {
 
         // Find from csr should search up and find siblings
         assert_eq!(tree.find_by_name('d', csr), Some(discord));
+    }
+
+    #[test]
+    fn test_parent_and_first_child() {
+        let mut tree = WorkspaceTree::new();
+
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        let ws_b = tree.add_child(0, Workspace::with_name('b'));
+
+        assert_eq!(tree.parent(ws_a), Some(0));
+        assert_eq!(tree.parent(ws_b), Some(0));
+        assert_eq!(tree.parent(0), None);
+        assert_eq!(tree.first_child(0), Some(ws_a));
+        assert_eq!(tree.first_child(ws_a), None);
+    }
+
+    #[test]
+    fn test_workspace_name() {
+        let mut tree = WorkspaceTree::new();
+
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+
+        assert_eq!(tree.name(0), None); // root has no name
+        assert_eq!(tree.name(ws_a), Some('a'));
+    }
+
+    #[test]
+    fn test_find_by_name_creates_sibling_context() {
+        // Simulates the workspace switching flow:
+        // When in 'a' and searching for 'b', find_by_name searches up to root
+        let mut tree = WorkspaceTree::new();
+
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        let ws_b = tree.add_child(0, Workspace::with_name('b'));
+
+        // From ws_a, can find sibling ws_b by searching upward
+        assert_eq!(tree.find_by_name('b', ws_a), Some(ws_b));
+
+        // From ws_b, can find sibling ws_a
+        assert_eq!(tree.find_by_name('a', ws_b), Some(ws_a));
+
+        // Searching for nonexistent returns None
+        assert_eq!(tree.find_by_name('z', ws_a), None);
     }
 }
