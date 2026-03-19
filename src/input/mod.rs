@@ -3,6 +3,7 @@
 //! Implements the "peek before commit" interaction model.
 
 mod navigation;
+mod process;
 
 pub use navigation::{Mode, PeekState};
 

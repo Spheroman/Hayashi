@@ -167,7 +167,7 @@ Sticky behavior emerges from the tree structure. If Discord is a sibling workspa
 Monitor
 ├── Discord (claims bottom-left zone)
 └── Projects (claims remaining zones)
-    ├── CSR
+    ├── Node.js
     ├── Flutter
     └── Games
 ```

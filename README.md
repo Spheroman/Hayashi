@@ -2,17 +2,17 @@
 
 A Wayland compositor with nested hierarchical workspaces.
 
-**Status:** Early development (pre-milestone 1)
+**Status:** Milestone 1 complete (winit backend, single window display)
 
 ## The Idea
 
-Unlike traditional tiling window managers with flat workspace lists (1-10), Hayashi allows workspaces to contain other workspaces. A "CSR" project workspace might contain terminal, browser, and editor sub-workspaces. Switching projects changes everything; switching within a project preserves context.
+Unlike traditional tiling window managers with flat workspace lists (1-10), Hayashi allows workspaces to contain other workspaces. A "Node.js" project workspace might contain terminal, browser, and editor sub-workspaces. Switching projects changes everything; switching within a project preserves context.
 
 ```
 Monitor
 ├── Discord (claims bottom-left zone)
 └── Projects (claims remaining zones)
-    ├── CSR
+    ├── Node.js
     │   ├── t (terminal)
     │   ├── e (editor)
     │   └── b (browser)
