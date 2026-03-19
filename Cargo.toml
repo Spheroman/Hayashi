@@ -1,0 +1,53 @@
+[package]
+name = "hayashi"
+version = "0.1.0"
+edition = "2021"
+description = "A Wayland compositor with nested hierarchical workspaces"
+authors = ["Jack Wen"]
+license = "MIT"
+rust-version = "1.80"
+
+[dependencies]
+# Compositor framework
+smithay = { version = "0.7", default-features = false, features = [
+    "backend_drm",
+    "backend_libinput",
+    "backend_udev",
+    "backend_session_libseat",
+    "backend_winit",
+    "desktop",
+    "renderer_gl",
+    "wayland_frontend",
+    "xwayland",
+] }
+
+# Wayland protocols
+wayland-server = "0.31"
+wayland-protocols = { version = "0.32", features = ["server", "staging", "unstable"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Configuration
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "6"
+
+# Misc
+bitflags = "2"
+indexmap = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1  # Smithay is slow without some optimization
