@@ -32,4 +32,28 @@ pub enum Action {
 
     /// Focus the parent workspace (move up the tree).
     FocusParent,
+
+    /// Focus the first child workspace (move down the tree).
+    FocusChild,
+
+    /// Split parent's display tree horizontally, giving each child its own zone.
+    SplitZoneH,
+
+    /// Split parent's display tree vertically, giving each child its own zone.
+    SplitZoneV,
+
+    /// Merge parent's zones back to stacked (all children share zone 0).
+    MergeZones,
+
+    /// Move focused workspace to the adjacent zone on the left.
+    MoveLeft,
+
+    /// Move focused workspace to the adjacent zone on the right.
+    MoveRight,
+
+    /// Move focused workspace to the adjacent zone above.
+    MoveUp,
+
+    /// Move focused workspace to the adjacent zone below.
+    MoveDown,
 }

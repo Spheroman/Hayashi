@@ -2,7 +2,7 @@
 
 A Wayland compositor with nested hierarchical workspaces.
 
-**Status:** Milestone 4: Nested workspaces (incomplete), switching between workspaces
+**Status:** Milestone 5: Nested workspaces with zone claims
 ## The Idea
 
 Unlike traditional tiling window managers with flat workspace lists (1-10), Hayashi allows workspaces to contain other workspaces. A "Node.js" project workspace might contain terminal, browser, and editor sub-workspaces. Switching projects changes everything; switching within a project preserves context.

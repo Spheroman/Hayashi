@@ -22,12 +22,21 @@ impl XdgShellHandler for Hayashi {
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let window = Window::new_wayland_window(surface);
-        self.space.map_element(window.clone(), (0, 0), false);
-        self.windows.push(window);
-        let new_idx = self.windows.len() - 1;
+
+        // Add the window to the focused workspace's window list
+        let focused_ws = self.workspace_tree.focus;
+        self.workspace_windows
+            .entry(focused_ws)
+            .or_default()
+            .push(window.clone());
+
+        // Relayout (will map all visible windows including this one)
         self.relayout();
-        // Auto-focus the new window
-        self.focus_window(new_idx);
+
+        // Focus the new window
+        if let Some(idx) = self.windows.iter().position(|w| w == &window) {
+            self.focus_window(idx);
+        }
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {

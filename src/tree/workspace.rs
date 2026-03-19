@@ -53,6 +53,9 @@ pub struct Workspace {
 
     /// Optional size constraint (for "floating" windows).
     pub size_constraint: Option<SizeConstraint>,
+
+    /// The currently active child workspace (shown when children share a zone).
+    pub active_child: Option<usize>,
 }
 
 impl Workspace {
@@ -66,6 +69,7 @@ impl Workspace {
             content: Content::Empty,
             parent: None,
             size_constraint: None,
+            active_child: None,
         }
     }
 
@@ -130,6 +134,11 @@ impl WorkspaceTree {
                 // Converting a window workspace to have children - unusual but allowed
                 self.nodes[parent].content = Content::Children(vec![idx]);
             }
+        }
+
+        // Set active_child if this is the first child
+        if self.nodes[parent].active_child.is_none() {
+            self.nodes[parent].active_child = Some(idx);
         }
 
         idx
@@ -202,6 +211,100 @@ impl WorkspaceTree {
             })
             .collect::<Vec<_>>()
             .join(" > ")
+    }
+
+    /// Get the children of a workspace.
+    pub fn children(&self, idx: usize) -> Vec<usize> {
+        match &self.nodes[idx].content {
+            Content::Children(c) => c.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Activate the path from root to the given workspace.
+    /// Sets active_child at each level of the tree so the target becomes visible.
+    pub fn activate_path(&mut self, target: usize) {
+        let path = self.path_to(target);
+        for i in 0..path.len().saturating_sub(1) {
+            self.nodes[path[i]].active_child = Some(path[i + 1]);
+        }
+    }
+
+    /// Find all visible leaf workspaces and their geometry.
+    ///
+    /// Walks the tree from the given workspace, following zone claims.
+    /// At each level, children with unique zone claims are always visible.
+    /// When multiple children claim the same zone, only the active child is shown.
+    ///
+    /// Each workspace receives one or more rects from its parent (multiple rects
+    /// for L-shaped claims). The workspace's local_display subdivides single rects
+    /// into zones for children; multi-rect inputs are treated as zones directly.
+    pub fn visible_leaves(
+        &self,
+        ws_idx: usize,
+        inherited_rects: &[Rect],
+    ) -> Vec<(usize, Vec<Rect>)> {
+        let ws = &self.nodes[ws_idx];
+
+        match &ws.content {
+            Content::Children(children) if !children.is_empty() => {
+                // Compute zones available to children
+                let zones: Vec<Rect> = if inherited_rects.len() == 1 {
+                    // Single rect: subdivide using local display tree
+                    ws.local_display.subdivide(inherited_rects[0])
+                } else {
+                    // Multiple rects (L-shape): each inherited rect is a zone
+                    inherited_rects.to_vec()
+                };
+
+                // For each zone, determine which child wins it
+                let zone_winners: Vec<Option<usize>> = zones
+                    .iter()
+                    .enumerate()
+                    .map(|(zone_id, _)| {
+                        let claimants: Vec<usize> = children
+                            .iter()
+                            .filter(|&&c| self.nodes[c].claims.contains(&ZoneId(zone_id)))
+                            .copied()
+                            .collect();
+
+                        if claimants.len() == 1 {
+                            Some(claimants[0])
+                        } else if claimants.len() > 1 {
+                            ws.active_child.filter(|ac| claimants.contains(ac))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Group zone rects by winning child (preserves order for L-shapes)
+                let mut child_rects: Vec<(usize, Vec<Rect>)> = Vec::new();
+                for (zone_id, winner) in zone_winners.iter().enumerate() {
+                    if let Some(child_idx) = winner {
+                        if let Some(entry) =
+                            child_rects.iter_mut().find(|(idx, _)| idx == child_idx)
+                        {
+                            entry.1.push(zones[zone_id]);
+                        } else {
+                            child_rects.push((*child_idx, vec![zones[zone_id]]));
+                        }
+                    }
+                }
+
+                // Recurse once per visible child with all its collected rects
+                let mut results = Vec::new();
+                for (child_idx, rects) in &child_rects {
+                    results.extend(self.visible_leaves(*child_idx, rects));
+                }
+
+                results
+            }
+            _ => {
+                // Leaf workspace — visible with all inherited rects
+                vec![(ws_idx, inherited_rects.to_vec())]
+            }
+        }
     }
 
     /// Compute the rectangles for a workspace given inherited geometry.
@@ -303,6 +406,148 @@ mod tests {
 
         assert_eq!(tree.name(0), None); // root has no name
         assert_eq!(tree.name(ws_a), Some('a'));
+    }
+
+    #[test]
+    fn test_active_child_set_on_first_add() {
+        let mut tree = WorkspaceTree::new();
+        assert_eq!(tree.nodes[0].active_child, None);
+
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        assert_eq!(tree.nodes[0].active_child, Some(ws_a));
+
+        // Second child doesn't change active_child
+        let _ws_b = tree.add_child(0, Workspace::with_name('b'));
+        assert_eq!(tree.nodes[0].active_child, Some(ws_a));
+    }
+
+    #[test]
+    fn test_activate_path() {
+        let mut tree = WorkspaceTree::new();
+        let ws_p = tree.add_child(0, Workspace::with_name('p'));
+        let ws_d = tree.add_child(0, Workspace::with_name('d'));
+        let ws_n = tree.add_child(ws_p, Workspace::with_name('n'));
+
+        // Activate path to ws_n: root -> p -> n
+        tree.activate_path(ws_n);
+        assert_eq!(tree.nodes[0].active_child, Some(ws_p));
+        assert_eq!(tree.nodes[ws_p].active_child, Some(ws_n));
+
+        // Activate path to ws_d: root -> d
+        tree.activate_path(ws_d);
+        assert_eq!(tree.nodes[0].active_child, Some(ws_d));
+        // ws_p's active_child is still ws_n (preserved)
+        assert_eq!(tree.nodes[ws_p].active_child, Some(ws_n));
+    }
+
+    #[test]
+    fn test_visible_leaves_stacked() {
+        use super::super::display::Rect;
+
+        let mut tree = WorkspaceTree::new();
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        let _ws_b = tree.add_child(0, Workspace::with_name('b'));
+
+        tree.activate_path(ws_a);
+
+        let rect = Rect::new(0, 0, 1920, 1080);
+        let visible = tree.visible_leaves(0, &[rect]);
+
+        // Both claim zone 0, only active (ws_a) is visible
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].0, ws_a);
+        assert_eq!(visible[0].1, vec![rect]);
+    }
+
+    #[test]
+    fn test_visible_leaves_split() {
+        use super::super::display::{build_equal_hsplit, Rect, ZoneId};
+
+        let mut tree = WorkspaceTree::new();
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        let ws_b = tree.add_child(0, Workspace::with_name('b'));
+
+        // Split root's display tree into 2 zones
+        tree.nodes[0].local_display.root = build_equal_hsplit(2);
+        tree.nodes[ws_a].claims = vec![ZoneId(0)];
+        tree.nodes[ws_b].claims = vec![ZoneId(1)];
+
+        let rect = Rect::new(0, 0, 1920, 1080);
+        let visible = tree.visible_leaves(0, &[rect]);
+
+        // Both visible in their own zones
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].0, ws_a);
+        assert_eq!(visible[0].1, vec![Rect::new(0, 0, 960, 1080)]);
+        assert_eq!(visible[1].0, ws_b);
+        assert_eq!(visible[1].1, vec![Rect::new(960, 0, 960, 1080)]);
+    }
+
+    #[test]
+    fn test_visible_leaves_nested() {
+        use super::super::display::{build_equal_hsplit, Rect, ZoneId};
+
+        let mut tree = WorkspaceTree::new();
+        let ws_d = tree.add_child(0, Workspace::with_name('d'));
+        let ws_p = tree.add_child(0, Workspace::with_name('p'));
+        let ws_n = tree.add_child(ws_p, Workspace::with_name('n'));
+        let _ws_f = tree.add_child(ws_p, Workspace::with_name('f'));
+
+        // Split root: discord left, projects right
+        tree.nodes[0].local_display.root = build_equal_hsplit(2);
+        tree.nodes[ws_d].claims = vec![ZoneId(0)];
+        tree.nodes[ws_p].claims = vec![ZoneId(1)];
+
+        // Within projects, n and f are stacked (both claim zone 0)
+        tree.activate_path(ws_n);
+
+        let rect = Rect::new(0, 0, 1920, 1080);
+        let visible = tree.visible_leaves(0, &[rect]);
+
+        // Discord visible in left half, Node.js visible in right half
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].0, ws_d);
+        assert_eq!(visible[0].1, vec![Rect::new(0, 0, 960, 1080)]);
+        assert_eq!(visible[1].0, ws_n);
+        assert_eq!(visible[1].1, vec![Rect::new(960, 0, 960, 1080)]);
+    }
+
+    #[test]
+    fn test_visible_leaves_l_shape() {
+        use super::super::display::{DisplayNode, Rect, ZoneId};
+
+        let mut tree = WorkspaceTree::new();
+        let ws_d = tree.add_child(0, Workspace::with_name('d'));
+        let ws_csr = tree.add_child(0, Workspace::with_name('c'));
+
+        // Root has 2x2 grid: zones 0,1,2,3
+        tree.nodes[0].local_display.root = DisplayNode::vsplit(
+            0.5,
+            DisplayNode::hsplit(0.5, DisplayNode::zone(0), DisplayNode::zone(1)),
+            DisplayNode::hsplit(0.5, DisplayNode::zone(2), DisplayNode::zone(3)),
+        );
+
+        // Discord claims bottom-left only
+        tree.nodes[ws_d].claims = vec![ZoneId(2)];
+        // CSR claims L-shape: top-left, top-right, bottom-right
+        tree.nodes[ws_csr].claims = vec![ZoneId(0), ZoneId(1), ZoneId(3)];
+
+        let rect = Rect::new(0, 0, 1920, 1080);
+        let visible = tree.visible_leaves(0, &[rect]);
+
+        assert_eq!(visible.len(), 2);
+
+        // CSR appears first (claims zone 0 which is processed first)
+        // Gets three rects (zones 0, 1, 3: L-shape)
+        assert_eq!(visible[0].0, ws_csr);
+        assert_eq!(visible[0].1.len(), 3);
+        assert_eq!(visible[0].1[0], Rect::new(0, 0, 960, 540));      // zone 0
+        assert_eq!(visible[0].1[1], Rect::new(960, 0, 960, 540));     // zone 1
+        assert_eq!(visible[0].1[2], Rect::new(960, 540, 960, 540));   // zone 3
+
+        // Discord gets one rect (zone 2: bottom-left)
+        assert_eq!(visible[1].0, ws_d);
+        assert_eq!(visible[1].1, vec![Rect::new(0, 540, 960, 540)]);
     }
 
     #[test]

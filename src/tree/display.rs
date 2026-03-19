@@ -177,6 +177,25 @@ pub fn build_equal_hsplit(count: usize) -> DisplayNode {
     build_zones(0, count)
 }
 
+/// Build a display tree with `count` equal-height vertical zones (zone IDs 0..count).
+pub fn build_equal_vsplit(count: usize) -> DisplayNode {
+    assert!(count > 0, "need at least one zone");
+    build_zones_vertical(0, count)
+}
+
+fn build_zones_vertical(start: usize, count: usize) -> DisplayNode {
+    if count == 1 {
+        DisplayNode::zone(start)
+    } else {
+        let ratio = 1.0 / count as f32;
+        DisplayNode::vsplit(
+            ratio,
+            DisplayNode::zone(start),
+            build_zones_vertical(start + 1, count - 1),
+        )
+    }
+}
+
 fn build_zones(start: usize, count: usize) -> DisplayNode {
     if count == 1 {
         DisplayNode::zone(start)

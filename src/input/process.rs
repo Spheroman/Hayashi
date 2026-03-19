@@ -67,9 +67,39 @@ impl Hayashi {
                             }
 
                             // Mod+Shift+u: focus parent workspace
+                            // Mod+Shift+d: focus child workspace
                             if modifiers.shift {
                                 if keysym == keysyms::KEY_U || keysym == keysyms::KEY_u {
                                     return FilterResult::Intercept(Action::FocusParent);
+                                }
+                                if keysym == keysyms::KEY_D || keysym == keysyms::KEY_d {
+                                    return FilterResult::Intercept(Action::FocusChild);
+                                }
+                            }
+
+                            // Mod+Ctrl combos: zone and move management
+                            if modifiers.ctrl && !modifiers.shift {
+                                if keysym == keysyms::KEY_s || keysym == keysyms::KEY_S {
+                                    return FilterResult::Intercept(Action::SplitZoneH);
+                                }
+                                if keysym == keysyms::KEY_v || keysym == keysyms::KEY_V {
+                                    return FilterResult::Intercept(Action::SplitZoneV);
+                                }
+                                if keysym == keysyms::KEY_m || keysym == keysyms::KEY_M {
+                                    return FilterResult::Intercept(Action::MergeZones);
+                                }
+                                // Move workspace to adjacent zone
+                                if keysym == keysyms::KEY_h || keysym == keysyms::KEY_H {
+                                    return FilterResult::Intercept(Action::MoveLeft);
+                                }
+                                if keysym == keysyms::KEY_j || keysym == keysyms::KEY_J {
+                                    return FilterResult::Intercept(Action::MoveDown);
+                                }
+                                if keysym == keysyms::KEY_k || keysym == keysyms::KEY_K {
+                                    return FilterResult::Intercept(Action::MoveUp);
+                                }
+                                if keysym == keysyms::KEY_l || keysym == keysyms::KEY_L {
+                                    return FilterResult::Intercept(Action::MoveRight);
                                 }
                             }
 

@@ -28,12 +28,15 @@ use tracing::info;
 
 use crate::input::Action;
 use crate::input::Mode as InputMode;
-use crate::tree::{build_equal_hsplit, DisplayTree, Rect, Workspace, WorkspaceTree};
+use crate::tree::{
+    build_equal_hsplit, build_equal_vsplit, Direction, DisplayTree, Rect, ZoneId, Workspace,
+    WorkspaceTree,
+};
 
 /// The main compositor state.
 ///
 /// Hayashi's architecture centers on two distinct tree structures:
-/// - `display_trees`: Binary trees that subdivide screen space into zones
+/// - Display trees: Binary trees that subdivide screen space into zones (stored per-workspace as `local_display`)
 /// - `workspace_tree`: N-ary tree of workspaces that claim zones
 ///
 /// The display tree drives window positioning: each mapped window is assigned
@@ -65,10 +68,8 @@ pub struct Hayashi {
     /// window a zone by index (window 0 → zone 0, etc.).
     pub windows: Vec<Window>,
 
-    /// The display trees (geometry) — one per output.
-    pub display_trees: Vec<DisplayTree>,
-
     /// The workspace tree (hierarchy).
+    /// Each workspace node holds its own display tree (`local_display`).
     pub workspace_tree: WorkspaceTree,
 
     /// Current interaction mode (Normal or Peeking).
@@ -131,7 +132,6 @@ impl Hayashi {
             seat,
 
             windows: Vec::new(),
-            display_trees: Vec::new(),
             workspace_tree: {
                 let mut tree = WorkspaceTree::new();
                 let default_ws = tree.add_child(tree.root, Workspace::with_name('a'));
@@ -183,63 +183,94 @@ impl Hayashi {
 
     /// Rebuild the display tree and reposition all windows according to their zones.
     ///
-    /// Called when windows are added/removed or the output is resized.
+    /// Walks the workspace tree from root, computing geometry for each visible
+    /// leaf workspace via zone claims, then positions windows within each leaf.
     pub fn relayout(&mut self) {
         let Some(output) = self.space.outputs().next().cloned() else {
             return;
         };
         let output_geo = self.space.output_geometry(&output).unwrap();
 
-        let n = self.windows.len();
-        if n == 0 {
-            return;
-        }
-
-        // Build a display tree with one zone per window, split equally
-        let tree_root = build_equal_hsplit(n);
-
-        // Persist the display tree for this output
-        if self.display_trees.is_empty() {
-            self.display_trees.push(DisplayTree::new());
-        }
-        self.display_trees[0].root = tree_root;
-
-        // Compute zone rectangles from output geometry
-        let rect = Rect::new(
+        let output_rect = Rect::new(
             output_geo.loc.x,
             output_geo.loc.y,
             output_geo.size.w as u32,
             output_geo.size.h as u32,
         );
-        let zones = self.display_trees[0].subdivide(rect);
 
-        // Configure and position each window in its zone
-        for (i, window) in self.windows.iter().enumerate() {
-            if let Some(zone) = zones.get(i) {
-                window.toplevel().unwrap().with_pending_state(|state| {
-                    state.size = Some((zone.width as i32, zone.height as i32).into());
-                });
-                window.toplevel().unwrap().send_configure();
-                self.space.map_element(window.clone(), (zone.x, zone.y), false);
+        // Unmap all windows from the space
+        let old_elements: Vec<_> = self.space.elements().cloned().collect();
+        for window in &old_elements {
+            self.space.unmap_elem(window);
+        }
+        self.windows.clear();
+
+        // Walk the workspace tree to find all visible leaf workspaces
+        let root = self.workspace_tree.root;
+        let visible = self.workspace_tree.visible_leaves(root, &[output_rect]);
+
+        // Position windows for each visible leaf workspace
+        for (ws_idx, ws_rects) in &visible {
+            let ws_windows = match self.workspace_windows.get(ws_idx) {
+                Some(w) if !w.is_empty() => w,
+                _ => continue,
+            };
+
+            let n = ws_windows.len();
+
+            // Distribute windows across the workspace's rects.
+            // For a single rect (common case), all windows go there.
+            // For multiple rects (L-shape), distribute roughly evenly.
+            let per_rect = n / ws_rects.len();
+            let remainder = n % ws_rects.len();
+            let mut window_idx = 0;
+
+            for (rect_i, rect) in ws_rects.iter().enumerate() {
+                let count = per_rect + if rect_i < remainder { 1 } else { 0 };
+                if count == 0 {
+                    continue;
+                }
+
+                let tree_root = build_equal_hsplit(count);
+                let zones = tree_root.subdivide(*rect);
+
+                for (i, window) in ws_windows[window_idx..window_idx + count]
+                    .iter()
+                    .enumerate()
+                {
+                    if let Some(zone) = zones.get(i) {
+                        window.toplevel().unwrap().with_pending_state(|state| {
+                            state.size = Some((zone.width as i32, zone.height as i32).into());
+                        });
+                        window.toplevel().unwrap().send_configure();
+                        self.space
+                            .map_element(window.clone(), (zone.x, zone.y), false);
+                        self.windows.push(window.clone());
+                    }
+                }
+
+                window_idx += count;
             }
         }
     }
 
     /// Remove windows that are no longer alive and relayout if needed.
     pub fn cleanup_windows(&mut self) {
-        let before = self.windows.len();
-        // Collect live surfaces from the space to avoid borrow conflicts
-        let live_surfaces: Vec<_> = self
-            .space
-            .elements()
-            .map(|w| w.toplevel().unwrap().wl_surface().clone())
-            .collect();
-        self.windows.retain(|w| {
-            let surface = w.toplevel().unwrap().wl_surface().clone();
-            live_surfaces.contains(&surface)
-        });
-        if self.windows.len() != before {
-            // Fix focused_window index after removal
+        let mut needs_relayout = false;
+
+        // Clean up dead windows from all workspaces
+        for windows in self.workspace_windows.values_mut() {
+            let before = windows.len();
+            windows.retain(|w| w.toplevel().is_some_and(|t| t.alive()));
+            if windows.len() != before {
+                needs_relayout = true;
+            }
+        }
+
+        if needs_relayout {
+            self.relayout();
+
+            // Fix focused_window index
             if self.windows.is_empty() {
                 self.focused_window = None;
             } else if let Some(idx) = self.focused_window {
@@ -247,8 +278,6 @@ impl Hayashi {
                     self.focused_window = Some(self.windows.len() - 1);
                 }
             }
-            self.relayout();
-            // Re-focus if we still have a focused window
             if let Some(idx) = self.focused_window {
                 self.focus_window(idx);
             }
@@ -382,26 +411,16 @@ impl Hayashi {
         }
     }
 
-    /// Get the current zone rectangles for all windows.
+    /// Get the current zone rectangles for all visible windows.
     fn current_zones(&self) -> Vec<Rect> {
-        let Some(output) = self.space.outputs().next().cloned() else {
-            return Vec::new();
-        };
-        let Some(output_geo) = self.space.output_geometry(&output) else {
-            return Vec::new();
-        };
-
-        if self.windows.is_empty() || self.display_trees.is_empty() {
-            return Vec::new();
-        }
-
-        let rect = Rect::new(
-            output_geo.loc.x,
-            output_geo.loc.y,
-            output_geo.size.w as u32,
-            output_geo.size.h as u32,
-        );
-        self.display_trees[0].subdivide(rect)
+        self.windows
+            .iter()
+            .filter_map(|w| {
+                self.space.element_geometry(w).map(|geo| {
+                    Rect::new(geo.loc.x, geo.loc.y, geo.size.w as u32, geo.size.h as u32)
+                })
+            })
+            .collect()
     }
 
     /// Close the currently focused window.
@@ -415,42 +434,39 @@ impl Hayashi {
 
     // --- Workspace management ---
 
-    /// Switch to a workspace by index, saving/restoring windows.
+    /// Switch to a workspace by index.
+    ///
+    /// Updates the active path in the workspace tree and relayouts.
+    /// Windows are stored per-workspace in workspace_windows; the visible set
+    /// is recomputed from the tree walk.
     fn switch_to_workspace(&mut self, target_idx: usize) {
         let current = self.workspace_tree.focus;
         if target_idx == current {
             return;
         }
 
-        // Save current windows and unmap from space
-        let current_windows: Vec<Window> = self.windows.drain(..).collect();
-        for w in &current_windows {
-            self.space.unmap_elem(w);
-        }
-        self.workspace_windows.insert(current, current_windows);
-
-        // Switch focus in workspace tree
+        // Activate the path from root to the target workspace
+        self.workspace_tree.activate_path(target_idx);
         self.workspace_tree.focus = target_idx;
 
-        // Load target workspace's windows
-        self.windows = self.workspace_windows.remove(&target_idx).unwrap_or_default();
-
-        // Map windows into space
-        for window in &self.windows {
-            self.space.map_element(window.clone(), (0, 0), false);
-        }
-
-        // Relayout and refocus
+        // Relayout (recomputes visible windows from tree walk)
         self.relayout();
 
-        if !self.windows.is_empty() {
-            self.focus_window(0);
-        } else {
-            self.focused_window = None;
-            let serial = SERIAL_COUNTER.next_serial();
-            let keyboard = self.seat.get_keyboard().unwrap();
-            keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+        // Focus the first window in the target workspace
+        if let Some(target_windows) = self.workspace_windows.get(&target_idx) {
+            if let Some(first) = target_windows.first() {
+                if let Some(idx) = self.windows.iter().position(|w| w == first) {
+                    self.focus_window(idx);
+                    return;
+                }
+            }
         }
+
+        // No windows to focus
+        self.focused_window = None;
+        let serial = SERIAL_COUNTER.next_serial();
+        let keyboard = self.seat.get_keyboard().unwrap();
+        keyboard.set_focus(self, Option::<WlSurface>::None, serial);
     }
 
     /// Switch to (or create) a workspace by name.
@@ -466,19 +482,26 @@ impl Hayashi {
             Some(idx) => (idx, false),
             None => {
                 // Creation context: window-focused → sibling, container → child
-                let create_parent = if self.windows.is_empty() {
-                    // Container context: create as child of current workspace
-                    current
-                } else {
+                let has_windows = self
+                    .workspace_windows
+                    .get(&current)
+                    .is_some_and(|w| !w.is_empty());
+                let create_parent = if has_windows {
                     // Window context: create as sibling (child of parent)
                     self.workspace_tree.parent(current).unwrap_or(current)
+                } else {
+                    // Container context: create as child of current workspace
+                    current
                 };
                 let idx = self.workspace_tree.add_child(create_parent, Workspace::with_name(name));
                 (idx, true)
             }
         };
 
-        info!("Switching to workspace: {}", self.workspace_tree.path_string(target_idx));
+        info!(
+            "Switching to workspace: {}",
+            self.workspace_tree.path_string(target_idx)
+        );
         self.switch_to_workspace(target_idx);
 
         if created {
@@ -495,12 +518,178 @@ impl Hayashi {
         }
     }
 
-    /// Focus the parent workspace.
+    /// Focus the parent workspace (move up the tree).
+    ///
+    /// The visual layout doesn't change — we just move the interaction focus
+    /// up to the container level. From there, Mod+letter switches between
+    /// children, and Mod+Shift+d descends back in.
     pub fn focus_parent_workspace(&mut self) {
         let current = self.workspace_tree.focus;
         if let Some(parent) = self.workspace_tree.parent(current) {
-            info!("Switching to parent workspace: {}", self.workspace_tree.path_string(parent));
-            self.switch_to_workspace(parent);
+            info!(
+                "Focusing parent workspace: {}",
+                self.workspace_tree.path_string(parent)
+            );
+            self.workspace_tree.focus = parent;
+            // Clear window focus — we're at a container level now
+            self.focused_window = None;
+            let serial = SERIAL_COUNTER.next_serial();
+            let keyboard = self.seat.get_keyboard().unwrap();
+            keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+        }
+    }
+
+    /// Focus the active child workspace (move down the tree).
+    pub fn focus_child_workspace(&mut self) {
+        let current = self.workspace_tree.focus;
+        if let Some(active) = self.workspace_tree.nodes[current].active_child {
+            info!(
+                "Focusing child workspace: {}",
+                self.workspace_tree.path_string(active)
+            );
+            self.workspace_tree.focus = active;
+
+            // Focus the first window of the child if it has any
+            if let Some(windows) = self.workspace_windows.get(&active) {
+                if let Some(first) = windows.first() {
+                    if let Some(idx) = self.windows.iter().position(|w| w == first) {
+                        self.focus_window(idx);
+                        return;
+                    }
+                }
+            }
+
+            // No windows — keep descending or clear focus
+            self.focused_window = None;
+        }
+    }
+
+    /// Split the parent's display tree, adding one more zone.
+    ///
+    /// All children keep their existing zone claims (typically zone 0).
+    /// Use move_workspace (Mod+Ctrl+h/j/k/l) to assign workspaces to the new zone.
+    pub fn split_parent_zone(&mut self, direction: Direction) {
+        let current = self.workspace_tree.focus;
+        let Some(parent) = self.workspace_tree.parent(current) else {
+            return;
+        };
+
+        let current_count = self.workspace_tree.nodes[parent]
+            .local_display
+            .root
+            .zone_count();
+        let new_count = current_count + 1;
+
+        // Rebuild parent's display tree with one more zone
+        let tree_root = match direction {
+            Direction::Horizontal => build_equal_hsplit(new_count),
+            Direction::Vertical => build_equal_vsplit(new_count),
+        };
+        self.workspace_tree.nodes[parent].local_display.root = tree_root;
+
+        // Children keep their existing zone claims — move them with Mod+Ctrl+hjkl
+
+        info!(
+            "Split {} into {} zones ({:?})",
+            self.workspace_tree.path_string(parent),
+            new_count,
+            direction
+        );
+        self.relayout();
+    }
+
+    /// Merge parent's zones back to stacked (all children share zone 0).
+    pub fn merge_parent_zones(&mut self) {
+        let current = self.workspace_tree.focus;
+        let Some(parent) = self.workspace_tree.parent(current) else {
+            return;
+        };
+
+        let children = self.workspace_tree.children(parent);
+
+        // Reset parent's display tree to single zone
+        self.workspace_tree.nodes[parent].local_display = DisplayTree::new();
+
+        // All children claim zone 0 (stacked)
+        for child_idx in &children {
+            self.workspace_tree.nodes[*child_idx].claims = vec![ZoneId(0)];
+        }
+
+        info!(
+            "Merged zones in {}",
+            self.workspace_tree.path_string(parent)
+        );
+        self.relayout();
+    }
+
+    /// Move the focused workspace to an adjacent zone in the given direction.
+    ///
+    /// The direction is spatial: we compute zone rects from the parent's display
+    /// tree and find the nearest zone in the requested direction.
+    pub fn move_workspace(&mut self, dx: i32, dy: i32) {
+        let current = self.workspace_tree.focus;
+        let Some(parent) = self.workspace_tree.parent(current) else {
+            return;
+        };
+
+        let current_zone = self.workspace_tree.nodes[current]
+            .claims
+            .first()
+            .map(|z| z.0)
+            .unwrap_or(0);
+
+        // Subdivide parent's display tree to get zone positions
+        let ref_rect = Rect::new(0, 0, 10000, 10000);
+        let zones = self.workspace_tree.nodes[parent]
+            .local_display
+            .subdivide(ref_rect);
+
+        if zones.len() < 2 {
+            return;
+        }
+
+        let Some(current_rect) = zones.get(current_zone) else {
+            return;
+        };
+        let cx = current_rect.x + current_rect.width as i32 / 2;
+        let cy = current_rect.y + current_rect.height as i32 / 2;
+
+        // Find the closest zone in the requested direction
+        let mut best: Option<(usize, i32)> = None;
+        for (i, zone) in zones.iter().enumerate() {
+            if i == current_zone {
+                continue;
+            }
+
+            let zx = zone.x + zone.width as i32 / 2;
+            let zy = zone.y + zone.height as i32 / 2;
+
+            let in_direction = match (dx, dy) {
+                (-1, 0) => zx < cx,
+                (1, 0) => zx > cx,
+                (0, -1) => zy < cy,
+                (0, 1) => zy > cy,
+                _ => false,
+            };
+
+            if !in_direction {
+                continue;
+            }
+
+            let dist = (zx - cx).abs() + (zy - cy).abs();
+            if best.is_none() || dist < best.unwrap().1 {
+                best = Some((i, dist));
+            }
+        }
+
+        if let Some((target_zone, _)) = best {
+            self.workspace_tree.nodes[current].claims = vec![ZoneId(target_zone)];
+            info!(
+                "Moved {} to zone {}",
+                self.workspace_tree.path_string(current),
+                target_zone
+            );
+            self.relayout();
         }
     }
 
@@ -520,6 +709,14 @@ impl Hayashi {
             Action::FocusPrev => self.focus_prev(),
             Action::SwitchWorkspace(name) => self.switch_workspace(name),
             Action::FocusParent => self.focus_parent_workspace(),
+            Action::FocusChild => self.focus_child_workspace(),
+            Action::SplitZoneH => self.split_parent_zone(Direction::Horizontal),
+            Action::SplitZoneV => self.split_parent_zone(Direction::Vertical),
+            Action::MergeZones => self.merge_parent_zones(),
+            Action::MoveLeft => self.move_workspace(-1, 0),
+            Action::MoveRight => self.move_workspace(1, 0),
+            Action::MoveUp => self.move_workspace(0, -1),
+            Action::MoveDown => self.move_workspace(0, 1),
         }
     }
 }
