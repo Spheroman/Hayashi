@@ -57,6 +57,31 @@ Item {
         anchors.bottomMargin: 14
         spacing: 10
 
+        // Notification count; tap to open the panel view, where they're listed.
+        Column {
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: Notifications.count > 0 || Notifications.dnd
+            spacing: 2
+
+            Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                name: Notifications.dnd ? "notifications_off" : "notifications"
+                filled: Notifications.count > 0
+                color: Notifications.count > 0 ? Theme.primary : Theme.fgSurfaceVariant
+                size: 20
+            }
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: Notifications.count > 0
+                text: Notifications.count
+                color: Theme.primary
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+            }
+
+            TapHandler { onTapped: ShellState.panelsOpen = true }
+        }
+
         Column {
             anchors.horizontalCenter: parent.horizontalCenter
             visible: UPower.displayDevice.isLaptopBattery

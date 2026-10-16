@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.config
+import qs.modules.notifications
 
 // The panel screen under the card. Two columns, like a tablet's pulled-down
 // shade in landscape.
@@ -35,7 +36,10 @@ Item {
             spacing: 20
 
             Media { Layout.fillWidth: true }
-            Item { Layout.fillHeight: true }
+            NotificationList {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+            }
         }
     }
 }

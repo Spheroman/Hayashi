@@ -83,4 +83,13 @@ GridLayout {
         on: Theme.dark
         onClicked: Theme.dark = !Theme.dark
     }
+
+    Tile {
+        Layout.fillWidth: true
+        icon: "do_not_disturb_on"
+        label: "Do not disturb"
+        detail: Notifications.dnd ? "On" : "Off"
+        on: Notifications.dnd
+        onClicked: Notifications.dnd = !Notifications.dnd
+    }
 }
