@@ -24,6 +24,7 @@ in
     home.packages = with pkgs; [
       cfg.package
       quickshell
+      wlopm  # screen off when idle (wlr-output-power-management)
       material-symbols
       nerd-fonts.space-mono
       (google-fonts.override { fonts = [ "SpaceGrotesk" ]; })

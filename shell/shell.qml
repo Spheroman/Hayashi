@@ -13,6 +13,9 @@ ShellRoot {
     // One set of notification popups, on the first screen.
     NotificationPopups { screen: Quickshell.screens[0] }
 
+    // Idle timers (dim, lock, screen off, sleep); timings are in Settings.
+    readonly property bool idleReady: Idle.ready
+
     Variants {
         model: Quickshell.screens
 

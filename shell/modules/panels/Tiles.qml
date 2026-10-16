@@ -1,95 +1,128 @@
 import Quickshell
-import Quickshell.Io
 import Quickshell.Bluetooth
+import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import QtQuick
-import QtQuick.Layouts
 import qs.config
 import qs.services
 
-GridLayout {
+// Quick settings: three tiles to a row. Tapping a tile toggles it; its arrow
+// expands it in place into a full-width card at the top, and the other tiles
+// flow on after it. One card is open at a time.
+Item {
     id: root
 
-    columns: 3
-    columnSpacing: 10
-    rowSpacing: 10
+    // The id of the expanded tile, or "".
+    property string expanded: ""
 
-    // Wi-Fi state comes from nmcli, refreshed whenever the panels open.
-    property bool wifiOn: false
-    property string ssid: ""
+    readonly property var ids: ["wifi", "bluetooth", "sound", "power", "theme", "dnd"]
+    readonly property var order: expanded === "" ? ids : [expanded].concat(ids.filter(i => i !== expanded))
+    readonly property real cell: (width - 2 * flow.spacing) / 3
 
-    Process {
-        id: wifiProc
-        command: ["sh", "-c", "nmcli -t -f WIFI general; nmcli -t -f active,ssid device wifi | sed -n 's/^yes://p' | head -n1"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const lines = text.trim().split("\n");
-                root.wifiOn = lines[0] === "enabled";
-                root.ssid = lines[1] ?? "";
-            }
-        }
-    }
+    implicitHeight: flow.implicitHeight
+
+    readonly property var adapter: Bluetooth.defaultAdapter
+    readonly property var sink: Pipewire.defaultAudioSink
+    PwObjectTracker { objects: [root.sink] }
+
+    // Keep Wi-Fi fresh while the panel view is open; refresh often while
+    // its card is showing.
     Connections {
         target: ShellState
         function onPanelsOpenChanged(): void {
-            if (ShellState.panelsOpen) wifiProc.running = true;
+            if (ShellState.panelsOpen) Wifi.refresh();
+            else root.expanded = "";
         }
     }
-    Component.onCompleted: wifiProc.running = true
+    Binding {
+        target: Wifi
+        property: "watching"
+        value: root.expanded === "wifi" && ShellState.panelsOpen
+    }
 
-    Tile {
-        Layout.fillWidth: true
-        icon: root.wifiOn ? "wifi" : "wifi_off"
-        label: "Wi-Fi"
-        detail: !root.wifiOn ? "Off" : root.ssid !== "" ? root.ssid : "Not connected"
-        on: root.wifiOn
-        onClicked: {
-            root.wifiOn = !root.wifiOn;
-            Quickshell.execDetached(["nmcli", "radio", "wifi", root.wifiOn ? "on" : "off"]);
+    readonly property int profile: PowerProfiles.profile
+    readonly property string profileName: profile === PowerProfile.PowerSaver ? "Power saver"
+        : profile === PowerProfile.Performance ? "Performance" : "Balanced"
+
+    function info(id) {
+        switch (id) {
+        case "wifi": return {
+            icon: Wifi.enabled ? "wifi" : "wifi_off", label: "Wi-Fi", on: Wifi.enabled,
+            detail: !Wifi.enabled ? "Off" : Wifi.active ? Wifi.active.ssid : "Not connected",
+            details: wifiDetails };
+        case "bluetooth": {
+            const connected = Bluetooth.devices.values.filter(d => d.connected);
+            return {
+                icon: "bluetooth", label: "Bluetooth", available: root.adapter !== null,
+                on: root.adapter?.enabled ?? false,
+                detail: !root.adapter ? "Unavailable" : !root.adapter.enabled ? "Off"
+                    : connected.length > 0 ? connected.map(d => d.name).join(", ") : "On",
+                details: bluetoothDetails };
         }
+        case "sound": {
+            const muted = root.sink?.audio?.muted ?? false;
+            return {
+                icon: muted ? "volume_off" : "volume_up", label: "Sound", on: !muted,
+                available: root.sink !== null,
+                detail: muted ? "Muted" : (root.sink?.description || root.sink?.nickname || "No output"),
+                details: soundDetails };
+        }
+        case "power": return {
+            icon: profile === PowerProfile.PowerSaver ? "eco" : profile === PowerProfile.Performance ? "bolt" : "speed",
+            label: "Power", detail: profileName, on: profile !== PowerProfile.Balanced,
+            details: powerDetails };
+        case "theme": return { icon: "dark_mode", label: "Dark theme", detail: Theme.dark ? "On" : "Off", on: Theme.dark };
+        case "dnd": return { icon: "do_not_disturb_on", label: "Do not disturb", detail: Notifications.dnd ? "On" : "Off", on: Notifications.dnd };
+        }
+        return {};
     }
 
-    Tile {
-        Layout.fillWidth: true
-        readonly property var adapter: Bluetooth.defaultAdapter
-        readonly property var connected: Bluetooth.devices.values.filter(d => d.connected)
-        icon: "bluetooth"
-        label: "Bluetooth"
-        available: adapter !== null
-        on: adapter?.enabled ?? false
-        detail: !available ? "Unavailable" : !on ? "Off" : connected.length > 0 ? connected[0].name : "On"
-        onClicked: adapter.enabled = !adapter.enabled
-    }
-
-    Tile {
-        Layout.fillWidth: true
-        readonly property int profile: PowerProfiles.profile
-        icon: profile === PowerProfile.PowerSaver ? "eco" : profile === PowerProfile.Performance ? "bolt" : "speed"
-        label: "Power"
-        detail: profile === PowerProfile.PowerSaver ? "Power saver" : profile === PowerProfile.Performance ? "Performance" : "Balanced"
-        on: profile !== PowerProfile.Balanced
-        onClicked: {
+    function toggle(id): void {
+        switch (id) {
+        case "wifi": Wifi.setEnabled(!Wifi.enabled); break;
+        case "bluetooth": if (root.adapter) root.adapter.enabled = !root.adapter.enabled; break;
+        case "sound": if (root.sink?.audio) root.sink.audio.muted = !root.sink.audio.muted; break;
+        case "power": {
             const order = [PowerProfile.PowerSaver, PowerProfile.Balanced];
             if (PowerProfiles.hasPerformanceProfile) order.push(PowerProfile.Performance);
             PowerProfiles.profile = order[(order.indexOf(profile) + 1) % order.length];
+            break;
+        }
+        case "theme": Theme.dark = !Theme.dark; break;
+        case "dnd": Notifications.dnd = !Notifications.dnd; break;
         }
     }
 
-    Tile {
-        Layout.fillWidth: true
-        icon: "dark_mode"
-        label: "Dark theme"
-        detail: Theme.dark ? "On" : "Off"
-        on: Theme.dark
-        onClicked: Theme.dark = !Theme.dark
-    }
+    Component { id: wifiDetails; WifiDetails {} }
+    Component { id: bluetoothDetails; BluetoothDetails {} }
+    Component { id: soundDetails; SoundDetails {} }
+    Component { id: powerDetails; PowerDetails {} }
 
-    Tile {
-        Layout.fillWidth: true
-        icon: "do_not_disturb_on"
-        label: "Do not disturb"
-        detail: Notifications.dnd ? "On" : "Off"
-        on: Notifications.dnd
-        onClicked: Notifications.dnd = !Notifications.dnd
+    Flow {
+        id: flow
+
+        width: parent.width
+        spacing: 10
+
+        Repeater {
+            model: root.order
+
+            delegate: Tile {
+                required property string modelData
+                readonly property var i: root.info(modelData)
+
+                width: expanded ? flow.width : root.cell
+                expanded: root.expanded === modelData
+                icon: i.icon ?? ""
+                label: i.label ?? ""
+                detail: i.detail ?? ""
+                on: i.on ?? false
+                available: i.available ?? true
+                details: i.details ?? null
+
+                onClicked: root.toggle(modelData)
+                onExpandToggled: root.expanded = root.expanded === modelData ? "" : modelData
+            }
+        }
     }
 }

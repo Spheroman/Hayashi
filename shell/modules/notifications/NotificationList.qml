@@ -60,7 +60,8 @@ ColumnLayout {
     ListView {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        visible: Notifications.count > 0
+        // Always laid out (empty when there are none), so it takes the
+        // remaining height and the header stays at the top.
         clip: true
         spacing: 4
         boundsBehavior: Flickable.StopAtBounds
