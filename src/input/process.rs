@@ -129,8 +129,16 @@ impl Hayashi {
             }
             InputEvent::PointerMotion { .. } => {}
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let output = self.space.outputs().next().unwrap();
-                let output_geo = self.space.output_geometry(output).unwrap();
+                // No output (e.g. all monitors off): nowhere to map the
+                // pointer to, so drop the event.
+                let Some(output_geo) = self
+                    .space
+                    .outputs()
+                    .next()
+                    .and_then(|output| self.space.output_geometry(output))
+                else {
+                    return;
+                };
 
                 let pos =
                     event.position_transformed(output_geo.size) + output_geo.loc.to_f64();

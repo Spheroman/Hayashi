@@ -189,7 +189,9 @@ impl Hayashi {
         let Some(output) = self.space.outputs().next().cloned() else {
             return;
         };
-        let output_geo = self.space.output_geometry(&output).unwrap();
+        let Some(output_geo) = self.space.output_geometry(&output) else {
+            return;
+        };
 
         let output_rect = Rect::new(
             output_geo.loc.x,

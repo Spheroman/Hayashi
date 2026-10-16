@@ -121,9 +121,21 @@ impl Hayashi {
             return;
         };
 
-        let output = self.space.outputs().next().unwrap();
-        let output_geo = self.space.output_geometry(output).unwrap();
-        let window_geo = self.space.element_geometry(window).unwrap();
+        // The window may be mid-unmap, or there may be no output at all
+        // (e.g. every monitor unplugged); leave the popup as requested.
+        let Some(window_geo) = self.space.element_geometry(window) else {
+            return;
+        };
+        // Constrain to the output the window is on, falling back to any output.
+        let Some(output_geo) = self
+            .space
+            .outputs_for_element(window)
+            .first()
+            .or_else(|| self.space.outputs().next())
+            .and_then(|output| self.space.output_geometry(output))
+        else {
+            return;
+        };
 
         let mut target = output_geo;
         target.loc -= get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));
