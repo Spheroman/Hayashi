@@ -1,7 +1,8 @@
 # The shell's QML, installed to share/hayashi-shell, plus a `hayashi-shell`
 # command that runs it.
 #
-#   hayashi-shell             start the shell (the store copy)
+#   hayashi-shell             start the shell (the store copy), replacing any
+#                             copy already running, from any build
 #   hayashi-shell ipc ...     talk to the running shell, e.g. `ipc call panels toggle`
 #   hayashi-shell dev PATH    restart it from a working copy, for live editing
 #   hayashi-shell dev off     restart it from the store copy again
@@ -9,7 +10,7 @@
 #
 # Dev mode is remembered in $XDG_STATE_HOME/hayashi-shell/dev-path, so it
 # survives restarts until `dev off`.
-{ lib, stdenvNoCC, runtimeShell, quickshell }:
+{ lib, stdenvNoCC, runtimeShell, quickshell, procps }:
 
 stdenvNoCC.mkDerivation {
   pname = "hayashi-shell";
@@ -37,6 +38,21 @@ stdenvNoCC.mkDerivation {
       if [ -f "$state/dev-path" ]; then cat "$state/dev-path"; else echo "$store"; fi
     }
 
+    # Stops every running copy of the shell: any store build (a rebuild
+    # changes the path, so an old build can outlive a restart) and the dev
+    # checkout, if one is set.
+    stop_all() {
+      ${procps}/bin/pkill -f -- '/bin/quickshell -p /nix/store/[^ ]*-hayashi-shell-[^ ]*/share/hayashi-shell( |$)' || true
+      if [ -f "$state/dev-path" ]; then
+        ${procps}/bin/pkill -f -x -- ".*/bin/quickshell -p $(cat "$state/dev-path")( .*)?" || true
+      fi
+      # Give them a moment to release the notification service and the session lock.
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        ${procps}/bin/pgrep -f -- '/bin/quickshell -p .*hayashi-shell' >/dev/null || break
+        sleep 0.1
+      done
+    }
+
     case "''${1:-}" in
       ipc)
         shift
@@ -44,23 +60,25 @@ stdenvNoCC.mkDerivation {
         ;;
       dev)
         shift
-        old=$(config)
         case "''${1:-}" in
-          off) rm -f "$state/dev-path" ;;
           "") echo "usage: hayashi-shell dev PATH | off" >&2; exit 2 ;;
-          *)
-            [ -f "$1/shell.qml" ] || { echo "hayashi-shell: no shell.qml in $1" >&2; exit 1; }
-            mkdir -p "$state"
-            realpath "$1" > "$state/dev-path"
-            ;;
+          off) ;;
+          *) [ -f "$1/shell.qml" ] || { echo "hayashi-shell: no shell.qml in $1" >&2; exit 1; } ;;
         esac
-        "$qs" kill -p "$old" >/dev/null 2>&1 || true
+        stop_all
+        if [ "$1" = off ]; then
+          rm -f "$state/dev-path"
+        else
+          mkdir -p "$state"
+          realpath "$1" > "$state/dev-path"
+        fi
         exec "$qs" -p "$(config)" -d
         ;;
       status)
         config
         ;;
       *)
+        stop_all
         exec "$qs" -p "$(config)" "$@"
         ;;
     esac
