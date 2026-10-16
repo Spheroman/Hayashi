@@ -23,18 +23,21 @@ impl XdgShellHandler for Hayashi {
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let window = Window::new_wayland_window(surface);
 
-        // Add the window to the focused workspace's window list
-        let focused_ws = self.workspace_tree.focus;
+        // Add the window to the focused workspace's window list. If focus is
+        // on a container, use the leaf it's showing: windows on a container
+        // are never laid out.
+        let target_ws = self.workspace_tree.leaf_under(self.workspace_tree.focus);
         self.workspace_windows
-            .entry(focused_ws)
+            .entry(target_ws)
             .or_default()
             .push(window.clone());
 
         // Relayout (will map all visible windows including this one)
         self.relayout();
 
-        // Focus the new window
+        // Focus the new window, moving workspace focus down to its leaf
         if let Some(idx) = self.windows.iter().position(|w| w == &window) {
+            self.workspace_tree.focus = target_ws;
             self.focus_window(idx);
         }
     }

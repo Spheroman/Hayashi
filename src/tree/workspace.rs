@@ -144,6 +144,22 @@ impl WorkspaceTree {
         idx
     }
 
+    /// Descend from a workspace to the leaf that is shown for it, following
+    /// `active_child` (or the first child if none is set) at each level.
+    pub fn leaf_under(&self, idx: usize) -> usize {
+        let mut current = idx;
+        loop {
+            let children = self.children(current);
+            if children.is_empty() {
+                return current;
+            }
+            current = self.nodes[current]
+                .active_child
+                .filter(|c| children.contains(c))
+                .unwrap_or(children[0]);
+        }
+    }
+
     /// Find a workspace by name, searching upward from the given starting point.
     /// Returns the first match found.
     pub fn find_by_name(&self, name: char, start: usize) -> Option<usize> {
@@ -567,5 +583,19 @@ mod tests {
 
         // Searching for nonexistent returns None
         assert_eq!(tree.find_by_name('z', ws_a), None);
+    }
+
+    #[test]
+    fn test_leaf_under() {
+        let mut tree = WorkspaceTree::new();
+        let ws_p = tree.add_child(0, Workspace::with_name('p'));
+        let ws_n = tree.add_child(ws_p, Workspace::with_name('n'));
+        let ws_f = tree.add_child(ws_p, Workspace::with_name('f'));
+
+        assert_eq!(tree.leaf_under(ws_n), ws_n);
+        assert_eq!(tree.leaf_under(0), ws_n);
+        tree.activate_path(ws_f);
+        assert_eq!(tree.leaf_under(0), ws_f);
+        assert_eq!(tree.leaf_under(ws_p), ws_f);
     }
 }
