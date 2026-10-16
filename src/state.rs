@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::process::Child;
 use std::sync::Arc;
 
 use smithay::desktop::{PopupManager, Space, Window, WindowSurfaceType};
@@ -84,6 +85,18 @@ pub struct Hayashi {
     /// Windows stored per-workspace (for inactive workspaces).
     /// Active workspace's windows live in `self.windows`.
     pub workspace_windows: HashMap<usize, Vec<Window>>,
+
+    /// Processes we launched. Kept so they can be reaped, and so their first
+    /// window can be placed in the workspace that launched them.
+    pub spawned: Vec<SpawnedClient>,
+}
+
+/// A process launched by the compositor.
+pub struct SpawnedClient {
+    pub child: Child,
+    /// Workspace the process's first window should open in. Cleared once
+    /// that window maps.
+    pub workspace: Option<usize>,
 }
 
 impl Hayashi {
@@ -142,6 +155,7 @@ impl Hayashi {
             focus: None,
             focused_window: None,
             workspace_windows: HashMap::new(),
+            spawned: Vec::new(),
         }
     }
 
@@ -269,6 +283,10 @@ impl Hayashi {
             }
         }
 
+        // Reap exited launches so they don't linger as zombies.
+        self.spawned
+            .retain_mut(|s| !matches!(s.child.try_wait(), Ok(Some(_)) | Err(_)));
+
         if needs_relayout {
             self.relayout();
 
@@ -284,6 +302,31 @@ impl Hayashi {
                 self.focus_window(idx);
             }
         }
+    }
+
+    /// Pick the workspace a new toplevel should be placed in.
+    ///
+    /// A window from a process we launched for a workspace goes there; any
+    /// other window goes to the focused workspace. Either way it lands on a
+    /// leaf, since windows on a container are never laid out.
+    pub fn workspace_for_new_window(&mut self, pid: Option<i32>) -> usize {
+        let launched_for = pid.and_then(|pid| {
+            let pending: Vec<u32> = self
+                .spawned
+                .iter()
+                .filter(|s| s.workspace.is_some())
+                .map(|s| s.child.id())
+                .collect();
+            let launcher = process_and_ancestors(pid as u32).find(|p| pending.contains(p))?;
+            self.spawned
+                .iter_mut()
+                .find(|s| s.child.id() == launcher)?
+                .workspace
+                .take()
+        });
+
+        let target = launched_for.unwrap_or(self.workspace_tree.focus);
+        self.workspace_tree.leaf_under(target)
     }
 
     /// Find the surface under a given point in the space.
@@ -507,16 +550,23 @@ impl Hayashi {
         self.switch_to_workspace(target_idx);
 
         if created {
-            self.spawn_launcher();
+            self.spawn_launcher(target_idx);
         }
     }
 
-    /// Spawn a terminal in the new workspace.
+    /// Spawn a terminal for a new workspace.
+    ///
+    /// The process is remembered so its first window opens in `workspace`
+    /// even if focus has moved on by the time it maps.
     /// TODO: Replace with launcher (rofi/fuzzel) once layer shell is supported.
-    fn spawn_launcher(&self) {
+    fn spawn_launcher(&mut self, workspace: usize) {
         info!("Launching foot for new workspace");
-        if let Err(e) = std::process::Command::new("foot").spawn() {
-            info!("Failed to launch foot: {e}");
+        match std::process::Command::new("foot").spawn() {
+            Ok(child) => self.spawned.push(SpawnedClient {
+                child,
+                workspace: Some(workspace),
+            }),
+            Err(e) => info!("Failed to launch foot: {e}"),
         }
     }
 
@@ -721,6 +771,20 @@ impl Hayashi {
             Action::MoveDown => self.move_workspace(0, 1),
         }
     }
+}
+
+/// Iterate over a pid and its ancestors (parent, grandparent, ...), so a
+/// window from a process started by a wrapper script still matches the pid
+/// we launched. Stops at init or when /proc can't be read.
+fn process_and_ancestors(pid: u32) -> impl Iterator<Item = u32> {
+    std::iter::successors(Some(pid), |&pid| {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        // Format is "pid (comm) state ppid ..."; comm may contain spaces or
+        // parens, so parse from the last ')'.
+        let after_comm = &stat[stat.rfind(')')? + 1..];
+        let ppid: u32 = after_comm.split_whitespace().nth(1)?.parse().ok()?;
+        (ppid > 1).then_some(ppid)
+    })
 }
 
 /// Data associated with each connected Wayland client.

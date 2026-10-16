@@ -7,6 +7,7 @@ use smithay::desktop::{
     find_popup_root_surface, get_popup_toplevel_coords, PopupKind, PopupManager, Space, Window,
 };
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -21,12 +22,16 @@ impl XdgShellHandler for Hayashi {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        let window = Window::new_wayland_window(surface);
+        // Work out which process the window came from, so a client we
+        // launched for a workspace opens there rather than wherever focus is.
+        let pid = surface
+            .wl_surface()
+            .client()
+            .and_then(|client| client.get_credentials(&self.display_handle).ok())
+            .map(|creds| creds.pid);
+        let target_ws = self.workspace_for_new_window(pid);
 
-        // Add the window to the focused workspace's window list. If focus is
-        // on a container, use the leaf it's showing: windows on a container
-        // are never laid out.
-        let target_ws = self.workspace_tree.leaf_under(self.workspace_tree.focus);
+        let window = Window::new_wayland_window(surface);
         self.workspace_windows
             .entry(target_ws)
             .or_default()
@@ -35,10 +40,15 @@ impl XdgShellHandler for Hayashi {
         // Relayout (will map all visible windows including this one)
         self.relayout();
 
-        // Focus the new window, moving workspace focus down to its leaf
-        if let Some(idx) = self.windows.iter().position(|w| w == &window) {
-            self.workspace_tree.focus = target_ws;
-            self.focus_window(idx);
+        // Focus the new window, unless it opened in a workspace the user has
+        // since moved away from. If focus was on a container, it moves down to
+        // the leaf the window landed in.
+        let focused_leaf = self.workspace_tree.leaf_under(self.workspace_tree.focus);
+        if target_ws == focused_leaf {
+            if let Some(idx) = self.windows.iter().position(|w| w == &window) {
+                self.workspace_tree.focus = target_ws;
+                self.focus_window(idx);
+            }
         }
     }
 
