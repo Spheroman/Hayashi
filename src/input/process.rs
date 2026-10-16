@@ -31,7 +31,7 @@ impl Hayashi {
                     key_state,
                     serial,
                     time,
-                    |_, modifiers, handle| {
+                    |state, modifiers, handle| {
                         if key_state != KeyState::Pressed {
                             return FilterResult::Forward;
                         }
@@ -39,6 +39,11 @@ impl Hayashi {
                         let keysym: u32 = handle.modified_sym().into();
 
                         if modifiers.logo {
+                            // Mod+Escape while peeking: cancel
+                            if keysym == keysyms::KEY_Escape && state.input_mode.is_peeking() {
+                                return FilterResult::Intercept(Action::CancelPeek);
+                            }
+
                             // Mod+Shift combos
                             if modifiers.shift {
                                 if keysym == keysyms::KEY_Q || keysym == keysyms::KEY_q {
@@ -125,6 +130,14 @@ impl Hayashi {
 
                 if let Some(action) = action {
                     self.handle_action(action);
+                }
+
+                // Releasing Super commits the peek. The release itself is
+                // forwarded above like any other key, so clients don't see
+                // Super stuck down.
+                let logo_held = self.seat.get_keyboard().unwrap().modifier_state().logo;
+                if self.input_mode.is_peeking() && !logo_held {
+                    self.handle_action(Action::CommitPeek);
                 }
             }
             InputEvent::PointerMotion { .. } => {}

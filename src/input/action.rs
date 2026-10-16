@@ -27,8 +27,15 @@ pub enum Action {
     /// Focus the previous sibling window.
     FocusPrev,
 
-    /// Switch to (or create) a workspace by name.
+    /// Peek at a workspace by name: starts peek mode, or continues the search.
+    /// The workspace is created on commit if no match is found.
     SwitchWorkspace(char),
+
+    /// Commit the peeked workspace (Super released).
+    CommitPeek,
+
+    /// Cancel peek mode and restore the original layout (Escape).
+    CancelPeek,
 
     /// Focus the parent workspace (move up the tree).
     FocusParent,

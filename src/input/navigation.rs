@@ -3,44 +3,34 @@
 //! Hayashi uses a "peek before commit" interaction model. Holding the Super key
 //! enters peek mode, where navigation previews changes without applying them.
 //! Releasing Super commits; pressing Escape cancels.
+//!
+//! The search itself lives in `Hayashi::peek_search` (state.rs); this module
+//! holds the state it needs to continue a search and to undo it.
+
+use smithay::desktop::Window;
+
+use crate::tree::WorkspaceTree;
 
 /// State during peek mode.
 #[derive(Debug, Clone)]
 pub struct PeekState {
-    /// Where we started (to restore on cancel).
-    pub original: usize,
+    /// The workspace tree from before peeking, restored on cancel. Its
+    /// `focus` is the origin every new search starts from.
+    pub original_tree: WorkspaceTree,
 
-    /// What we're currently previewing.
-    pub current_peek: usize,
+    /// The window that had keyboard focus before peeking.
+    pub original_window: Option<Window>,
 
-    /// The letter pressed to search.
-    pub search_key: char,
+    /// The letter being searched for (None until the first search).
+    pub search_key: Option<char>,
 
-    /// Where we've searched to (for continuing search upward).
-    pub search_position: usize,
-}
+    /// Where pressing the same letter again continues searching from.
+    /// None once the search has run out of levels to climb.
+    pub next_search: Option<usize>,
 
-impl PeekState {
-    pub fn new(from: usize, key: char) -> Self {
-        Self {
-            original: from,
-            current_peek: from,
-            search_key: key,
-            search_position: from,
-        }
-    }
-
-    /// Update to peek at a new target.
-    pub fn peek_at(&mut self, target: usize, searched_from: usize) {
-        self.current_peek = target;
-        self.search_position = searched_from;
-    }
-
-    /// Change the search key (restart from original position).
-    pub fn new_search(&mut self, key: char) {
-        self.search_key = key;
-        self.search_position = self.original;
-    }
+    /// Workspace created to preview "no match, create here". It only becomes
+    /// real (and gets a launcher) on commit; searching on removes it.
+    pub tentative: Option<usize>,
 }
 
 /// The current interaction mode.
@@ -64,54 +54,3 @@ impl Default for Mode {
         Mode::Normal
     }
 }
-
-/// Navigation actions that can be triggered by input.
-#[derive(Debug, Clone)]
-pub enum NavAction {
-    /// Enter peek mode and search for workspace with given name.
-    StartPeek(char),
-
-    /// Continue searching for same key (pressed again while peeking).
-    ContinueSearch,
-
-    /// Switch to searching for a different key.
-    NewSearch(char),
-
-    /// Cancel peek mode, return to original.
-    Cancel,
-
-    /// Commit the current peek as the new focus.
-    Commit,
-
-    /// Move focus in a direction within current workspace.
-    FocusDirection(FocusDir),
-}
-
-/// Direction for focus movement within a workspace.
-#[derive(Debug, Clone, Copy)]
-pub enum FocusDir {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-/// Result of handling a navigation action.
-#[derive(Debug)]
-pub enum NavResult {
-    /// No change.
-    None,
-
-    /// Focus changed to this workspace.
-    FocusChanged(usize),
-
-    /// Created a new workspace at this index.
-    Created(usize),
-
-    /// Mode changed.
-    ModeChanged(Mode),
-}
-
-// TODO: Implement the actual navigation logic
-// This will be connected to the workspace tree's find_by_name
-// and the compositor state in state.rs

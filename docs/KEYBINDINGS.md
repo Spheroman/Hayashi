@@ -13,11 +13,17 @@ All `Mod+letter` bindings are reserved for workspace navigation via peek mode.
 | `Escape` (while peeking) | Cancel, return to original workspace |
 | `Release Mod` | Commit to peeked workspace |
 
+Any other `Mod` shortcut pressed while peeking (focus, split, move, close, ...) commits the peek first and then runs. Escape only ever undoes the search itself.
+
 **Workspace creation:**
 - If no match is found on first press, creates workspace at current location
 - If matches exist but search is exhausted (no more matches), creates at *origin* (where you started)
-- New workspace opens the launcher to select an application
+- The new workspace is only created when you release Mod. Until then the peek shows it as an empty area, and `Escape` or searching on discards it
+- On release, the new workspace opens the launcher to select an application
+- If the search is exhausted, pressing the letter again starts over from the first match
 - **Creation context:** If focused on a window, creates as sibling. If focused on a container workspace, creates as child.
+
+**Cleanup:** An empty workspace is removed once it's no longer shown: after you commit to a different workspace, or when its last window closes while you're somewhere else. It stays while it's focused, while the focused container is showing it (so `Mod+Shift+u` then `Mod+Shift+d` gets you back), and while its launcher hasn't opened a window yet. Containers left empty are removed the same way.
 
 **Example:** Inside `flutter > terminal` (a window), pressing `Mod+b`:
 - No match → create `b` as sibling to `terminal` (inside `flutter`)

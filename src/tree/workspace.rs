@@ -100,7 +100,7 @@ impl Default for Workspace {
 }
 
 /// The workspace tree - an arena of workspace nodes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WorkspaceTree {
     /// All workspaces stored in a flat vec (arena allocation).
     pub nodes: Vec<Workspace>,
@@ -191,6 +191,21 @@ impl WorkspaceTree {
         true
     }
 
+    /// Roll the tree back to an earlier snapshot of itself.
+    ///
+    /// Nodes added since the snapshot are kept as tombstones rather than
+    /// dropped, so their indices still aren't reused.
+    pub fn restore(&mut self, snapshot: WorkspaceTree) {
+        let len = self.nodes.len();
+        *self = snapshot;
+        while self.nodes.len() < len {
+            self.nodes.push(Workspace {
+                removed: true,
+                ..Workspace::new()
+            });
+        }
+    }
+
     /// Whether a workspace is still part of the tree.
     pub fn is_live(&self, idx: usize) -> bool {
         self.nodes.get(idx).is_some_and(|ws| !ws.removed)
@@ -232,6 +247,16 @@ impl WorkspaceTree {
         }
 
         None
+    }
+
+    /// One step of a peek search: find the nearest match searching upward
+    /// from `start`, along with where the next step should continue from
+    /// (the level above the one the match was found at, or None if there's
+    /// nowhere left to climb).
+    pub fn find_next_by_name(&self, name: char, start: usize) -> Option<(usize, Option<usize>)> {
+        let found = self.find_by_name(name, start)?;
+        let level = self.nodes[found].parent;
+        Some((found, level.and_then(|l| self.nodes[l].parent)))
     }
 
     /// Get the path from root to a workspace.
@@ -677,6 +702,51 @@ mod tests {
         // p is a leaf now, so it can be removed too
         assert!(tree.remove(ws_p));
         assert!(tree.children(0).is_empty());
+    }
+
+    #[test]
+    fn test_find_next_by_name_climbs() {
+        // root > d, f > (t, d)
+        // From t, the inner d is nearest; the next step finds the outer d,
+        // and after that the search is exhausted.
+        let mut tree = WorkspaceTree::new();
+        let outer_d = tree.add_child(0, Workspace::with_name('d'));
+        let ws_f = tree.add_child(0, Workspace::with_name('f'));
+        let ws_t = tree.add_child(ws_f, Workspace::with_name('t'));
+        let inner_d = tree.add_child(ws_f, Workspace::with_name('d'));
+
+        let (first, next) = tree.find_next_by_name('d', ws_t).unwrap();
+        assert_eq!(first, inner_d);
+        assert_eq!(next, Some(0));
+
+        let (second, next) = tree.find_next_by_name('d', next.unwrap()).unwrap();
+        assert_eq!(second, outer_d);
+        assert_eq!(next, None);
+
+        // From f itself (a container), its own child d is searched first
+        assert_eq!(tree.find_next_by_name('d', ws_f), Some((inner_d, Some(0))));
+        assert_eq!(tree.find_next_by_name('z', ws_t), None);
+    }
+
+    #[test]
+    fn test_restore_keeps_indices_unique() {
+        let mut tree = WorkspaceTree::new();
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        tree.focus = ws_a;
+        let snapshot = tree.clone();
+
+        let ws_b = tree.add_child(0, Workspace::with_name('b'));
+        tree.activate_path(ws_b);
+        tree.focus = ws_b;
+
+        tree.restore(snapshot);
+        assert_eq!(tree.focus, ws_a);
+        assert_eq!(tree.nodes[0].active_child, Some(ws_a));
+        assert_eq!(tree.children(0), vec![ws_a]);
+        assert!(!tree.is_live(ws_b));
+        // b's index stays taken
+        let ws_c = tree.add_child(0, Workspace::with_name('c'));
+        assert_ne!(ws_c, ws_b);
     }
 
     #[test]

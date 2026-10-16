@@ -29,6 +29,7 @@ use tracing::info;
 
 use crate::input::Action;
 use crate::input::Mode as InputMode;
+use crate::input::PeekState;
 use crate::tree::{
     build_equal_hsplit, build_equal_vsplit, Direction, DisplayTree, Rect, ZoneId, Workspace,
     WorkspaceTree,
@@ -313,20 +314,27 @@ impl Hayashi {
 
     /// Remove empty leaf workspaces, along with ancestors left empty by that.
     ///
-    /// A workspace is kept if it has windows, has focus, is waiting for a
-    /// launched client's window, or is the root's only child (so the root
-    /// always stays a container and never holds windows itself).
+    /// A workspace is kept if it has windows, has focus or is the leaf the
+    /// focused container is showing, is waiting for a launched client's
+    /// window, or is the root's only child (so the root always stays a
+    /// container and never holds windows itself). Nothing is pruned while
+    /// peeking, since a cancel has to be able to return to the origin.
     /// Returns true if anything was removed.
     pub fn prune_empty_workspaces(&mut self) -> bool {
+        if self.input_mode.is_peeking() {
+            return false;
+        }
+
         let mut removed_any = false;
         loop {
             let tree = &self.workspace_tree;
+            let shown = tree.leaf_under(tree.focus);
             let candidate = (0..tree.nodes.len()).find(|&idx| {
                 let Some(parent) = tree.parent(idx) else {
                     return false; // root, or already removed
                 };
                 tree.is_live(idx)
-                    && idx != tree.focus
+                    && idx != shown
                     && tree.children(idx).is_empty()
                     && !(parent == tree.root && tree.children(parent).len() == 1)
                     && !self.workspace_windows.get(&idx).is_some_and(|w| !w.is_empty())
@@ -560,44 +568,145 @@ impl Hayashi {
         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
     }
 
-    /// Switch to (or create) a workspace by name.
+    /// Handle Mod+<letter>: enter peek mode or continue the current search,
+    /// and preview the result.
     ///
-    /// Creation context follows KEYBINDINGS.md:
-    /// - If focused on a window (workspace has windows), creates as sibling
-    /// - If focused on a container (empty workspace), creates as child
-    pub fn switch_workspace(&mut self, name: char) {
-        let current = self.workspace_tree.focus;
+    /// Search behavior follows SPEC.md and KEYBINDINGS.md:
+    /// - The first press searches upward from the origin and peeks the first match
+    /// - The same letter again continues upward and peeks the next match
+    /// - When the matches run out, previews creating the workspace at the
+    ///   origin; pressing again from there starts over at the first match
+    /// - A different letter restarts the search from the origin
+    pub fn peek_search(&mut self, key: char) {
+        if !self.input_mode.is_peeking() {
+            self.input_mode = InputMode::Peeking(PeekState {
+                original_tree: self.workspace_tree.clone(),
+                original_window: self.focused_window.and_then(|i| self.windows.get(i).cloned()),
+                search_key: None,
+                next_search: None,
+                tentative: None,
+            });
+        }
+        let InputMode::Peeking(peek) = &mut self.input_mode else {
+            return;
+        };
+        let origin = peek.original_tree.focus;
 
-        // Search from current workspace upward
-        let (target_idx, created) = match self.workspace_tree.find_by_name(name, current) {
-            Some(idx) => (idx, false),
+        let restart = peek.search_key != Some(key) || peek.tentative.is_some();
+        let start = if restart { Some(origin) } else { peek.next_search };
+        peek.search_key = Some(key);
+
+        // Searching on discards a previewed creation
+        if let Some(tentative) = peek.tentative.take() {
+            self.workspace_tree.remove(tentative);
+        }
+
+        let found = start.and_then(|s| self.workspace_tree.find_next_by_name(key, s));
+        let target = match found {
+            Some((idx, next)) => {
+                if let InputMode::Peeking(peek) = &mut self.input_mode {
+                    peek.next_search = next;
+                }
+                idx
+            }
             None => {
-                // Creation context: window-focused → sibling, container → child
-                let has_windows = self
-                    .workspace_windows
-                    .get(&current)
-                    .is_some_and(|w| !w.is_empty());
-                let create_parent = if has_windows {
-                    // Window context: create as sibling (child of parent)
-                    self.workspace_tree.parent(current).unwrap_or(current)
-                } else {
-                    // Container context: create as child of current workspace
-                    current
-                };
-                let idx = self.workspace_tree.add_child(create_parent, Workspace::with_name(name));
-                (idx, true)
+                let idx = self
+                    .workspace_tree
+                    .add_child(self.creation_parent(origin), Workspace::with_name(key));
+                if let InputMode::Peeking(peek) = &mut self.input_mode {
+                    peek.next_search = None;
+                    peek.tentative = Some(idx);
+                }
+                idx
             }
         };
 
-        info!(
-            "Switching to workspace: {}",
-            self.workspace_tree.path_string(target_idx)
-        );
-        self.switch_to_workspace(target_idx);
+        info!("Peeking: {}", self.workspace_tree.path_string(target));
+        self.switch_to_workspace(target);
+    }
 
-        if created {
-            self.spawn_launcher(target_idx);
+    /// Where a workspace created from `origin` goes (KEYBINDINGS.md):
+    /// - If origin holds windows, the new workspace is its sibling
+    /// - If origin is a container (or empty), the new workspace is its child
+    fn creation_parent(&self, origin: usize) -> usize {
+        let has_windows = self
+            .workspace_windows
+            .get(&origin)
+            .is_some_and(|w| !w.is_empty());
+        if has_windows {
+            self.workspace_tree.parent(origin).unwrap_or(origin)
+        } else {
+            origin
         }
+    }
+
+    /// Commit the peeked workspace (Super released): it stays focused, a
+    /// previewed creation becomes real and gets a launcher, and workspaces
+    /// left empty are cleaned up. Does nothing outside peek mode.
+    pub fn commit_peek(&mut self) {
+        let InputMode::Peeking(peek) = std::mem::replace(&mut self.input_mode, InputMode::Normal)
+        else {
+            return;
+        };
+
+        info!(
+            "Committed to workspace: {}",
+            self.workspace_tree.path_string(self.workspace_tree.focus)
+        );
+        if let Some(created) = peek.tentative {
+            self.spawn_launcher(created);
+        }
+
+        if self.prune_empty_workspaces() {
+            let focused = self.focused_window.and_then(|i| self.windows.get(i).cloned());
+            self.relayout();
+            self.refocus(focused.as_ref());
+        }
+    }
+
+    /// Cancel peek mode (Escape): put the workspace tree, layout, and
+    /// keyboard focus back the way they were before peeking.
+    pub fn cancel_peek(&mut self) {
+        let InputMode::Peeking(peek) = std::mem::replace(&mut self.input_mode, InputMode::Normal)
+        else {
+            return;
+        };
+
+        self.workspace_tree.restore(peek.original_tree);
+        info!(
+            "Peek cancelled, back to: {}",
+            self.workspace_tree.path_string(self.workspace_tree.focus)
+        );
+
+        // A client may have mapped a window into the previewed creation,
+        // which no longer exists; move it to where focus is now.
+        let orphaned: Vec<usize> = self
+            .workspace_windows
+            .keys()
+            .copied()
+            .filter(|&ws| !self.workspace_tree.is_live(ws))
+            .collect();
+        let home = self.workspace_tree.leaf_under(self.workspace_tree.focus);
+        for ws in orphaned {
+            if let Some(windows) = self.workspace_windows.remove(&ws) {
+                self.workspace_windows.entry(home).or_default().extend(windows);
+            }
+        }
+
+        self.relayout();
+        self.refocus(peek.original_window.as_ref());
+    }
+
+    /// Give keyboard focus to `window` if it's still visible, or clear it.
+    fn refocus(&mut self, window: Option<&Window>) {
+        if let Some(idx) = window.and_then(|w| self.windows.iter().position(|v| v == w)) {
+            self.focus_window(idx);
+            return;
+        }
+        self.focused_window = None;
+        let serial = SERIAL_COUNTER.next_serial();
+        let keyboard = self.seat.get_keyboard().unwrap();
+        keyboard.set_focus(self, Option::<WlSurface>::None, serial);
     }
 
     /// Spawn a terminal for a new workspace.
@@ -795,8 +904,20 @@ impl Hayashi {
     }
 
     /// Dispatch a compositor action.
+    ///
+    /// Mod+<letter> and Escape drive peek mode. Any other action commits an
+    /// active peek first and then runs, so Escape only ever has to undo the
+    /// search itself.
     pub fn handle_action(&mut self, action: Action) {
         match action {
+            Action::SwitchWorkspace(name) => return self.peek_search(name),
+            Action::CancelPeek => return self.cancel_peek(),
+            Action::CommitPeek => return self.commit_peek(),
+            _ => self.commit_peek(),
+        }
+
+        match action {
+            Action::SwitchWorkspace(_) | Action::CancelPeek | Action::CommitPeek => {}
             Action::CloseWindow => self.close_focused_window(),
             Action::Exit => {
                 info!("Exit requested");
@@ -808,7 +929,6 @@ impl Hayashi {
             Action::FocusDown => self.focus_direction(0, 1),
             Action::FocusNext => self.focus_next(),
             Action::FocusPrev => self.focus_prev(),
-            Action::SwitchWorkspace(name) => self.switch_workspace(name),
             Action::FocusParent => self.focus_parent_workspace(),
             Action::FocusChild => self.focus_child_workspace(),
             Action::SplitZoneH => self.split_parent_zone(Direction::Horizontal),
