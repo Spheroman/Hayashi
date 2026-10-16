@@ -25,7 +25,7 @@ Flow {
             return;
         }
         armed = "";
-        ShellState.panelsOpen = false;
+        ShellState.closeOverlay();
         if (command === "exit") Compositor.exitSession();
         else Quickshell.execDetached(command);
     }

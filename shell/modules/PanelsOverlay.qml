@@ -5,10 +5,12 @@ import qs.config
 import qs.services
 import qs.modules.panels
 import qs.modules.lock
+import qs.modules.launcher
 
-// Super+Esc. Hyprland can't move windows for us, so this takes a still of the
-// screen, shows it on the overlay layer exactly where the card is, and slides
-// that off to the right. The panels are laid out underneath and never animate.
+// Moves the card. Hyprland can't move windows for us, so this takes a still
+// of the screen, shows it on the overlay layer exactly where the card is, and
+// slides that: all the way off for the panel view and the lock screen, or
+// just far enough for the launcher column. What's underneath never animates.
 // (On Hayashi, the compositor would slide the real card instead; see issue #5.)
 //
 // The surface stays mapped all the time, fully transparent and click-through
@@ -34,45 +36,63 @@ PanelWindow {
 
     // True from the moment the still is ready until the card is back home.
     property bool shown: false
-    property bool away: false
-    // Shows the lock layout instead of the panels, from the lock request
-    // until the card is home again (so unlocking slides the card back over
-    // the lock layout, not the panels).
-    property bool lockLook: false
+    // What's laid out under the card: "panels", "launcher" or "lock". It
+    // only changes while a view is open, so closing slides the card back over
+    // whatever was showing.
+    property string look: "panels"
 
-    function lockIfAway(): void {
-        if (ShellState.locking && away && !anim.running) ShellState.sessionLocked = true;
+    readonly property real fullX: card.width + Tokens.border
+
+    function targetX(): real {
+        if (!ShellState.overlayOpen) return 0;
+        return ShellState.launcherOpen ? Tokens.launcherWidth : fullX;
     }
 
-    function slide(toAway: bool): void {
-        away = toAway;
+    function updateLook(): void {
+        if (ShellState.locking) look = "lock";
+        else if (ShellState.launcherOpen) look = "launcher";
+        else if (ShellState.panelsOpen) look = "panels";
+        if (look === "launcher") launcher.open();
+    }
+
+    function slideToTarget(): void {
+        const to = targetX();
+        const leaving = to > card.x;
         anim.stop();
         anim.from = card.x;
-        anim.to = toAway ? card.width + Tokens.border : 0;
-        anim.duration = toAway ? Tokens.cardExit : Tokens.cardReturn;
-        anim.easing.bezierCurve = toAway ? Tokens.exitCurve : Tokens.returnCurve;
+        anim.to = to;
+        anim.duration = leaving ? Tokens.cardExit : Tokens.cardReturn;
+        anim.easing.bezierCurve = leaving ? Tokens.exitCurve : Tokens.returnCurve;
         anim.start();
+    }
+
+    // Engage the real session lock once the card is fully off.
+    function lockIfAway(): void {
+        if (ShellState.locking && !anim.running && card.x >= fullX - 1) ShellState.sessionLocked = true;
+    }
+
+    // Any change of view while shown: update what's underneath and move the
+    // card there. Opening from nothing goes through a fresh still first.
+    function viewChanged(): void {
+        if (ShellState.overlayOpen) {
+            updateLook();
+            if (shown) slideToTarget();
+            else capture.active = true;  // see onHasContentChanged
+        } else if (shown) {
+            slideToTarget();
+        } else {
+            capture.active = false;
+        }
     }
 
     Connections {
         target: ShellState
 
-        function onOverlayOpenChanged(): void {
-            if (ShellState.overlayOpen) {
-                if (win.shown) win.slide(true);  // reopened mid-return
-                else capture.active = true;      // a fresh still; see onHasContentChanged
-            } else if (win.shown) {
-                win.slide(false);
-            } else {
-                capture.active = false;
-            }
-        }
-
+        function onPanelsOpenChanged(): void { win.viewChanged(); }
+        function onLauncherOpenChanged(): void { win.viewChanged(); }
         function onLockingChanged(): void {
-            if (ShellState.locking) {
-                win.lockLook = true;
-                win.lockIfAway();  // locked from the panel view: the card is already away
-            }
+            win.viewChanged();
+            win.lockIfAway();  // locked from the panel view: the card is already off
         }
     }
 
@@ -82,11 +102,10 @@ PanelWindow {
         property: "x"
         easing.type: Easing.BezierSpline
         onFinished: {
-            if (win.away) {
+            if (card.x > 0) {
                 win.lockIfAway();
             } else {
                 win.shown = false;
-                win.lockLook = false;
                 capture.active = false;
             }
         }
@@ -107,7 +126,7 @@ PanelWindow {
         height: win.height
         visible: win.shown
         focus: true
-        Keys.onEscapePressed: ShellState.panelsOpen = false
+        Keys.onEscapePressed: ShellState.closeOverlay()
 
         // The base: the same surface as the frame.
         Rectangle {
@@ -119,15 +138,24 @@ PanelWindow {
             y: Tokens.border
             width: parent.width - Tokens.border
             height: parent.height - 2 * Tokens.border
-            visible: !win.lockLook
+            visible: win.look === "panels"
         }
 
         LockContent {
             y: Tokens.border
             width: parent.width - Tokens.border
             height: parent.height - 2 * Tokens.border
-            visible: win.lockLook
+            visible: win.look === "lock"
             interactive: false
+        }
+
+        Launcher {
+            id: launcher
+
+            y: Tokens.border
+            width: Tokens.launcherWidth
+            height: parent.height - 2 * Tokens.border
+            visible: win.look === "launcher"
         }
 
         // The card. The still includes the frame's rounded corners, which are
@@ -139,6 +167,10 @@ PanelWindow {
             width: parent.width - Tokens.border
             height: parent.height - 2 * Tokens.border
             clip: true
+
+            // With the launcher open, part of the card is still showing;
+            // clicking it closes the launcher.
+            TapHandler { onTapped: ShellState.closeOverlay() }
 
             Loader {
                 id: capture
@@ -162,7 +194,8 @@ PanelWindow {
                         if (ShellState.overlayOpen) {
                             card.x = 0;
                             win.shown = true;
-                            win.slide(true);
+                            win.updateLook();
+                            win.slideToTarget();
                         } else {
                             capture.active = false;
                         }

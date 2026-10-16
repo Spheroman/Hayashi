@@ -87,7 +87,7 @@ Item {
 
             TapHandler {
                 enabled: !ShellState.locking
-                onTapped: ShellState.panelsOpen = true
+                onTapped: ShellState.openPanels()
             }
         }
 

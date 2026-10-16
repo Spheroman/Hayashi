@@ -6,8 +6,11 @@ import QtQuick
 Singleton {
     id: root
 
-    // True while the card is off to the right and the panels are showing.
+    // The panel view (Super+Esc): the card slides all the way off.
     property bool panelsOpen: false
+    // The launcher (Super+Space): the card slides over just far enough for
+    // the search column.
+    property bool launcherOpen: false
 
     // Locking: from the lock request until a successful unlock. The card
     // slides away first; once it's gone, `sessionLocked` engages the
@@ -16,16 +19,40 @@ Singleton {
     property bool sessionLocked: false
 
     // Whether the card should be away for any reason.
-    readonly property bool overlayOpen: panelsOpen || locking
+    readonly property bool overlayOpen: panelsOpen || launcherOpen || locking
 
+    // When switching between views, the new one opens before the old one
+    // closes, so overlayOpen never dips and the card moves straight across.
     function togglePanels(): void {
-        if (!locking) panelsOpen = !panelsOpen;
+        if (locking) return;
+        if (panelsOpen) panelsOpen = false;
+        else openPanels();
+    }
+    function openPanels(): void {
+        if (locking) return;
+        panelsOpen = true;
+        launcherOpen = false;
+    }
+    function toggleLauncher(): void {
+        if (locking) return;
+        if (launcherOpen) {
+            launcherOpen = false;
+        } else {
+            launcherOpen = true;
+            panelsOpen = false;
+        }
+    }
+    function closeOverlay(): void {
+        if (locking) return;
+        panelsOpen = false;
+        launcherOpen = false;
     }
 
     function lock(): void {
         if (locking) return;
         locking = true;
         panelsOpen = false;
+        launcherOpen = false;
         deadline.restart();
     }
 

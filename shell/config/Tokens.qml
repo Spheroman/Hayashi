@@ -19,6 +19,9 @@ Singleton {
     // Concentric with the card corner: inner radius = outer radius - margin.
     readonly property int windowRadius: radius - gaps
 
+    // Launcher: how far the card slides to reveal the search column.
+    readonly property int launcherWidth: 420
+
     // Type
     readonly property string fontFamily: "Space Grotesk"
     readonly property string monoFamily: "SpaceMono Nerd Font"

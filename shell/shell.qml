@@ -78,8 +78,15 @@ ShellRoot {
         target: "panels"
 
         function toggle(): void { ShellState.togglePanels(); }
-        function open(): void { if (!ShellState.locking) ShellState.panelsOpen = true; }
-        function close(): void { ShellState.panelsOpen = false; }
+        function open(): void { ShellState.openPanels(); }
+        function close(): void { ShellState.closeOverlay(); }
+    }
+
+    // `hayashi-shell ipc call launcher toggle`, bound to Super+Space.
+    IpcHandler {
+        target: "launcher"
+
+        function toggle(): void { ShellState.toggleLauncher(); }
     }
 
     // `hayashi-shell ipc call lock lock`, used by the idle daemon.

@@ -28,8 +28,16 @@ Singleton {
         return list.sort((a, b) => rank(a.name) - rank(b.name));
     }
 
+    // Every window on every workspace: [{ address, title, appId, workspace }],
+    // most recently focused first.
+    property var windows: []
+
     function focusWorkspace(name: string): void {
         Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ workspace = "name:${name}" })`]);
+    }
+    // Switches to the window's workspace and focuses it.
+    function focusWindow(address: string): void {
+        Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ window = "address:${address}" })`]);
     }
     function exitSession(): void {
         Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.exit()"]);
@@ -48,6 +56,27 @@ Singleton {
         else wsProc.running = true;
         if (activeProc.running) activeProc.pending = true;
         else activeProc.running = true;
+        if (clientsProc.running) clientsProc.pending = true;
+        else clientsProc.running = true;
+    }
+
+    Process {
+        id: clientsProc
+        property bool pending: false
+        command: ["hyprctl", "-j", "clients"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.windows = JSON.parse(text)
+                        .filter(c => c.mapped !== false && c.workspace?.name && !c.workspace.name.startsWith("special"))
+                        .sort((a, b) => (a.focusHistoryID ?? 0) - (b.focusHistoryID ?? 0))
+                        .map(c => ({ address: c.address, title: c.title ?? "", appId: c.class ?? "", workspace: c.workspace.name }));
+                } catch (e) {
+                    console.warn("Compositor: could not parse windows:", e);
+                }
+            }
+        }
+        onExited: if (pending) { pending = false; running = true; }
     }
 
     Process {
