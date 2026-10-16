@@ -9,7 +9,7 @@ Singleton {
     id: root
 
     property bool enabled: false
-    // [{ ssid, signal (0-100), secure, active, saved }], connected first, then by signal.
+    // [{ ssid, signal (0-100), security, secure, active, saved }], connected first, then by signal.
     property var networks: []
     readonly property var active: networks.find(n => n.active) ?? null
 
@@ -30,15 +30,68 @@ Singleton {
         refreshSoon.restart();
     }
 
-    // Saved and open networks connect directly; new secured ones need a password.
+    // Saved and open networks connect directly. A new secured network never
+    // has its password on a command line (where other processes could read
+    // it): the network is saved without it, the password goes to a one-off
+    // file in $XDG_RUNTIME_DIR (private to the user, in memory) that
+    // `nmcli connection up` reads with passwd-file, and the file is deleted
+    // as soon as nmcli finishes. A failed attempt also removes the new
+    // saved network, so a wrong password doesn't leave a broken one behind.
     function connect(ssid: string, password: string): void {
         error = "";
         connecting = ssid;
-        const saved = networks.find(n => n.ssid === ssid)?.saved ?? false;
-        connectProc.command = saved && password === ""
-            ? ["nmcli", "connection", "up", "id", ssid]
-            : ["nmcli", "device", "wifi", "connect", ssid].concat(password !== "" ? ["password", password] : []);
-        connectProc.running = true;
+        const n = networks.find(x => x.ssid === ssid);
+
+        if (password === "") {
+            connectProc.newProfile = "";
+            connectProc.command = n?.saved ? ["nmcli", "connection", "up", "id", ssid] : ["nmcli", "device", "wifi", "connect", ssid];
+            connectProc.running = true;
+            return;
+        }
+
+        // WPA3-only networks use SAE; everything else WPA-PSK.
+        const sec = n?.security ?? "";
+        const keyMgmt = /WPA3/.test(sec) && !/WPA2|WPA1/.test(sec) ? "sae" : "wpa-psk";
+
+        secretFile.path = `${root.runtimeDir}/hayashi-shell-wifi-${Date.now()}`;
+        secretFile.setText("802-11-wireless-security.psk:" + password + "\n");
+
+        addProc.ssid = ssid;
+        addProc.command = ["nmcli", "connection", "add", "type", "wifi", "con-name", ssid, "ssid", ssid, "wifi-sec.key-mgmt", keyMgmt];
+        addProc.running = true;
+    }
+
+    readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
+
+    function removeSecret(): void {
+        if (secretFile.path !== "") Quickshell.execDetached(["rm", "-f", secretFile.path]);
+    }
+
+    FileView {
+        id: secretFile
+        // Written before nmcli reads it.
+        blockWrites: true
+        atomicWrites: false
+        printErrors: false
+    }
+
+    Process {
+        id: addProc
+
+        property string ssid: ""
+
+        stderr: StdioCollector { id: addErr }
+        onExited: code => {
+            if (code !== 0) {
+                root.removeSecret();
+                root.error = addErr.text.trim().replace(/^Error:\s*/, "") || "Couldn't save the network.";
+                root.connecting = "";
+                return;
+            }
+            connectProc.newProfile = ssid;
+            connectProc.command = ["nmcli", "connection", "up", "id", ssid, "passwd-file", secretFile.path];
+            connectProc.running = true;
+        }
     }
 
     function disconnect(ssid: string): void {
@@ -81,7 +134,7 @@ Singleton {
                     if (section === "--saved") {
                         if (f[1] === "802-11-wireless") saved.add(f[0]);
                     } else if (section === "--scan" && f[1] !== "") {
-                        const n = { ssid: f[1], signal: +f[2] || 0, secure: (f[3] ?? "") !== "" && f[3] !== "--", active: f[0] === "*" };
+                        const n = { ssid: f[1], signal: +f[2] || 0, security: f[3] ?? "", secure: (f[3] ?? "") !== "" && f[3] !== "--", active: f[0] === "*" };
                         const prev = bySsid[n.ssid];
                         if (!prev || n.active || (!prev.active && n.signal > prev.signal)) bySsid[n.ssid] = n;
                     }
@@ -95,14 +148,21 @@ Singleton {
 
     Process {
         id: connectProc
+
+        // Set when this attempt created the saved network (new secured network).
+        property string newProfile: ""
+
         stderr: StdioCollector { id: connectErr }
         onExited: (code, status) => {
+            if (newProfile !== "") root.removeSecret();
             if (code !== 0) {
                 const msg = connectErr.text.trim().replace(/^Error:\s*/, "");
                 root.error = /secrets were required|password|802-11-wireless-security/i.test(msg)
                     ? "Wrong password, or the network needs one."
                     : msg || "Couldn't connect.";
+                if (newProfile !== "") Quickshell.execDetached(["nmcli", "connection", "delete", "id", newProfile]);
             }
+            newProfile = "";
             root.connecting = "";
             root.refresh();
         }
