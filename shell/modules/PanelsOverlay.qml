@@ -4,6 +4,7 @@ import QtQuick
 import qs.config
 import qs.services
 import qs.modules.panels
+import qs.modules.lock
 
 // Super+Esc. Hyprland can't move windows for us, so this takes a still of the
 // screen, shows it on the overlay layer exactly where the card is, and slides
@@ -26,7 +27,7 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "card-panels"
-    WlrLayershell.keyboardFocus: ShellState.panelsOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: ShellState.overlayOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     color: "transparent"
     // Input only while shown, and never over the bar.
     mask: Region { item: inputArea }
@@ -34,6 +35,14 @@ PanelWindow {
     // True from the moment the still is ready until the card is back home.
     property bool shown: false
     property bool away: false
+    // Shows the lock layout instead of the panels, from the lock request
+    // until the card is home again (so unlocking slides the card back over
+    // the lock layout, not the panels).
+    property bool lockLook: false
+
+    function lockIfAway(): void {
+        if (ShellState.locking && away && !anim.running) ShellState.sessionLocked = true;
+    }
 
     function slide(toAway: bool): void {
         away = toAway;
@@ -48,14 +57,21 @@ PanelWindow {
     Connections {
         target: ShellState
 
-        function onPanelsOpenChanged(): void {
-            if (ShellState.panelsOpen) {
+        function onOverlayOpenChanged(): void {
+            if (ShellState.overlayOpen) {
                 if (win.shown) win.slide(true);  // reopened mid-return
                 else capture.active = true;      // a fresh still; see onHasContentChanged
             } else if (win.shown) {
                 win.slide(false);
             } else {
                 capture.active = false;
+            }
+        }
+
+        function onLockingChanged(): void {
+            if (ShellState.locking) {
+                win.lockLook = true;
+                win.lockIfAway();  // locked from the panel view: the card is already away
             }
         }
     }
@@ -66,8 +82,11 @@ PanelWindow {
         property: "x"
         easing.type: Easing.BezierSpline
         onFinished: {
-            if (!win.away) {
+            if (win.away) {
+                win.lockIfAway();
+            } else {
                 win.shown = false;
+                win.lockLook = false;
                 capture.active = false;
             }
         }
@@ -100,6 +119,15 @@ PanelWindow {
             y: Tokens.border
             width: parent.width - Tokens.border
             height: parent.height - 2 * Tokens.border
+            visible: !win.lockLook
+        }
+
+        LockContent {
+            y: Tokens.border
+            width: parent.width - Tokens.border
+            height: parent.height - 2 * Tokens.border
+            visible: win.lockLook
+            interactive: false
         }
 
         // The card. The still includes the frame's rounded corners, which are
@@ -131,7 +159,7 @@ PanelWindow {
                     onHasContentChanged: {
                         if (!hasContent) return;
                         live = false;
-                        if (ShellState.panelsOpen) {
+                        if (ShellState.overlayOpen) {
                             card.x = 0;
                             win.shown = true;
                             win.slide(true);

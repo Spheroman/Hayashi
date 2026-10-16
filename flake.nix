@@ -18,5 +18,10 @@
         hayashi-shell = import ./nix/hm-shell.nix self;
         default = self.homeManagerModules.hayashi-shell;
       };
+
+      nixosModules = {
+        hayashi-shell = ./nix/nixos-shell.nix;
+        default = self.nixosModules.hayashi-shell;
+      };
     };
 }

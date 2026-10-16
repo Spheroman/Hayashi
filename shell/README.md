@@ -26,6 +26,19 @@ Tuned values live in `config/Tokens.qml` and colors in `config/Theme.qml`.
 
 ## Using it
 
-With Nix, import `homeManagerModules.hayashi-shell` from this flake and set `programs.hayashi-shell.enable = true`. To edit it live, set `programs.hayashi-shell.devPath` to your checkout of this directory. Then start `qs` from your compositor and bind `qs ipc call panels toggle` to `Super+Esc`.
+With Nix, import two modules from this flake and enable both:
 
-Without Nix, link this directory to `~/.config/quickshell` and install Quickshell 0.3 or newer, Material Symbols Rounded, Space Grotesk and SpaceMono Nerd Font.
+- `homeManagerModules.hayashi-shell` (`programs.hayashi-shell.enable = true`) installs the shell, its fonts and the `hayashi-shell` command.
+- `nixosModules.hayashi-shell` (`programs.hayashi-shell.enable = true`) adds the `hayashi-shell` PAM service the lock screen signs in with.
+
+Then, from your compositor:
+
+- start `hayashi-shell` at login
+- bind `hayashi-shell ipc call panels toggle` to `Super+Esc`
+- point your idle daemon's lock command at `hayashi-shell ipc call lock lock`
+
+The installed shell runs from the Nix store, so it only changes when you update the flake. To work on it, run `hayashi-shell dev ~/path/to/hayashi/shell`: the shell restarts from your working copy and reloads as you edit. `hayashi-shell dev off` goes back to the store copy, and `hayashi-shell status` shows which one is running.
+
+For lock screen work, `HAYASHI_SHELL_FAKE_LOCK=1 qs -p shell/` shows the lock screen in an ordinary window that accepts any password, so a bug can't lock you out.
+
+Without Nix, run `qs -p` on this directory, install Quickshell 0.3 or newer, Material Symbols Rounded, Space Grotesk and SpaceMono Nerd Font, and create `/etc/pam.d/hayashi-shell` (a copy of your distro's `login` or `swaylock` file works).

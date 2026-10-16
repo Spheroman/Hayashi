@@ -30,7 +30,9 @@ Flow {
         else Quickshell.execDetached(command);
     }
 
-    SessionButton { icon: "lock"; label: "Lock"; onClicked: root.run("lock", ["loginctl", "lock-session"], false) }
+    // Locks directly: the card is already away, so the lock layout replaces the
+    // panels and the session lock engages right away.
+    SessionButton { icon: "lock"; label: "Lock"; onClicked: { root.armed = ""; ShellState.lock(); } }
     SessionButton { icon: "logout"; label: "Log out"; onClicked: root.run("logout", "exit", false) }
     SessionButton { icon: "bedtime"; label: "Suspend"; onClicked: root.run("suspend", ["systemctl", "suspend"], false) }
     SessionButton {

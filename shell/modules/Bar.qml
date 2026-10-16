@@ -14,6 +14,8 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: 14
         spacing: 6
+        // No workspaces on the lock screen; it shows only status.
+        visible: !ShellState.locking
 
         Repeater {
             model: Compositor.visibleWorkspaces
@@ -79,7 +81,10 @@ Item {
                 font.weight: Font.DemiBold
             }
 
-            TapHandler { onTapped: ShellState.panelsOpen = true }
+            TapHandler {
+                enabled: !ShellState.locking
+                onTapped: ShellState.panelsOpen = true
+            }
         }
 
         Column {

@@ -1,6 +1,7 @@
-# Home Manager module for the shell. Start it with `qs` from the compositor
-# (it's linked as Quickshell's default config); `qs ipc call panels toggle`
-# opens the panel view.
+# Home Manager module for the shell. Start it with `hayashi-shell` from the
+# compositor and bind `hayashi-shell ipc call panels toggle` to Super+Esc.
+# For live editing, run `hayashi-shell dev ~/path/to/hayashi/shell`; see
+# nix/shell.nix.
 self:
 { config, lib, pkgs, ... }:
 
@@ -15,22 +16,13 @@ in
       type = lib.types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.hayashi-shell;
       defaultText = lib.literalExpression "hayashi.packages.\${system}.hayashi-shell";
-      description = "The shell's QML.";
-    };
-
-    devPath = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "/home/me/src/hayashi/shell";
-      description = ''
-        A working copy of the shell/ directory to link instead of the store,
-        so edits reload live without a rebuild.
-      '';
+      description = "The shell package, which provides the `hayashi-shell` command.";
     };
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      cfg.package
       quickshell
       material-symbols
       nerd-fonts.space-mono
@@ -38,10 +30,5 @@ in
     ];
 
     fonts.fontconfig.enable = true;
-
-    xdg.configFile."quickshell".source =
-      if cfg.devPath != null
-      then config.lib.file.mkOutOfStoreSymlink cfg.devPath
-      else "${cfg.package}/share/hayashi-shell";
   };
 }
