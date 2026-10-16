@@ -14,9 +14,10 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: 14
         spacing: 6
-        // No workspaces on the lock screen; it shows only status.
-        visible: !ShellState.locking
 
+        // Workspaces stay visible on the lock screen, exactly as they were,
+        // so unlocking reads as the windows sliding back in. They just
+        // can't be clicked while locked.
         Repeater {
             model: Compositor.visibleWorkspaces
 
@@ -29,7 +30,7 @@ Item {
                 width: 34
                 height: active ? 56 : 34
                 radius: width / 2
-                color: active ? Theme.primaryContainer : hover.hovered ? Theme.surfaceContainerHigh : "transparent"
+                color: active ? Theme.primaryContainer : hover.hovered && !ShellState.locking ? Theme.surfaceContainerHigh : "transparent"
 
                 Behavior on height {
                     NumberAnimation { duration: 200; easing.type: Easing.BezierSpline; easing.bezierCurve: Tokens.returnCurve }
@@ -48,7 +49,10 @@ Item {
                 }
 
                 HoverHandler { id: hover }
-                TapHandler { onTapped: Compositor.focusWorkspace(ws.modelData.name) }
+                TapHandler {
+                    enabled: !ShellState.locking
+                    onTapped: Compositor.focusWorkspace(ws.modelData.name)
+                }
             }
         }
     }
