@@ -3,6 +3,7 @@
 #
 #   hayashi-shell             start the shell (the store copy), replacing any
 #                             copy already running, from any build
+#   hayashi-shell msg WORD    fast keybind message: panels, launcher, lock or close
 #   hayashi-shell ipc ...     talk to the running shell, e.g. `ipc call panels toggle`
 #   hayashi-shell dev PATH    restart it from a working copy, for live editing
 #   hayashi-shell dev off     restart it from the store copy again
@@ -10,7 +11,7 @@
 #
 # Dev mode is remembered in $XDG_STATE_HOME/hayashi-shell/dev-path, so it
 # survives restarts until `dev off`.
-{ lib, stdenvNoCC, runtimeShell, quickshell, procps }:
+{ lib, stdenvNoCC, runtimeShell, quickshell, procps, socat }:
 
 stdenvNoCC.mkDerivation {
   pname = "hayashi-shell";
@@ -54,6 +55,19 @@ stdenvNoCC.mkDerivation {
     }
 
     case "''${1:-}" in
+      msg)
+        # One word over the shell's socket (a few ms). If the shell isn't
+        # listening, fall back to qs ipc, which also reports the error.
+        word="''${2:-}"
+        sock="''${XDG_RUNTIME_DIR:-/tmp}/hayashi-shell.sock"
+        if printf '%s\n' "$word" | ${socat}/bin/socat - "UNIX-CONNECT:$sock" 2>/dev/null; then exit 0; fi
+        case "$word" in
+          panels|launcher) exec "$qs" ipc -p "$(config)" call "$word" toggle ;;
+          lock) exec "$qs" ipc -p "$(config)" call lock lock ;;
+          close) exec "$qs" ipc -p "$(config)" call panels close ;;
+          *) echo "usage: hayashi-shell msg panels|launcher|lock|close" >&2; exit 2 ;;
+        esac
+        ;;
       ipc)
         shift
         exec "$qs" ipc -p "$(config)" "$@"

@@ -73,7 +73,29 @@ ShellRoot {
         }
     }
 
-    // `hayashi-shell ipc call panels toggle`, bound to Super+Esc.
+    // Fast path for keybinds: `hayashi-shell msg panels|launcher|lock|close`
+    // writes one word to this socket, which takes a few milliseconds.
+    // (`qs ipc` below starts a whole Quickshell process per call, ~45 ms.)
+    SocketServer {
+        active: true
+        path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/hayashi-shell.sock"
+
+        handler: Socket {
+            parser: SplitParser {
+                onRead: data => {
+                    switch (data.trim()) {
+                    case "panels": ShellState.togglePanels(); break;
+                    case "launcher": ShellState.toggleLauncher(); break;
+                    case "lock": ShellState.lock(); break;
+                    case "close": ShellState.closeOverlay(); break;
+                    default: console.warn("hayashi-shell: unknown message", data);
+                    }
+                }
+            }
+        }
+    }
+
+    // `hayashi-shell ipc call panels toggle`, for scripts.
     IpcHandler {
         target: "panels"
 

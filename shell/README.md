@@ -34,8 +34,8 @@ With Nix, import two modules from this flake and enable both:
 Then, from your compositor:
 
 - start `hayashi-shell` at login
-- bind `hayashi-shell ipc call panels toggle` to `Super+Esc`
-- point your idle daemon's lock command at `hayashi-shell ipc call lock lock`
+- bind `hayashi-shell msg panels` to `Super+Esc` and `hayashi-shell msg launcher` to `Super+Space`
+- point your idle daemon's lock command at `hayashi-shell msg lock`
 
 The installed shell runs from the Nix store, so it only changes when you update the flake. To work on it, run `hayashi-shell dev ~/path/to/hayashi/shell`: the shell restarts from your working copy and reloads as you edit. `hayashi-shell dev off` goes back to the store copy, and `hayashi-shell status` shows which one is running.
 
