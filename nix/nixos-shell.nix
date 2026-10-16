@@ -9,11 +9,9 @@ let
   shellPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.hayashi-shell;
   sessions = "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions";
 
-  # greetd runs this on the login VT. Clearing the VT first means nothing
-  # (boot messages, say) is left on it to show for a moment when cage hands
-  # the screen to the session.
+  # The greeter, run by greetd on the login VT (greetd clears the VT itself
+  # before starting the greeter and the session).
   greeter = pkgs.writeShellScript "hayashi-greeter" ''
-    printf '\033[2J\033[3J\033[H'
     # cage: -d no window decorations, -s allow switching VTs,
     # -m last use the last-connected output. Qt draws its own title bar when
     # the compositor doesn't, so QT_WAYLAND_DISABLE_WINDOWDECORATION turns

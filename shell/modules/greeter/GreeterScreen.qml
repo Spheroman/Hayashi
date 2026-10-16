@@ -47,6 +47,8 @@ Rectangle {
               [ -e "$f" ] || continue
               name=$(sed -n 's/^Name=//p' "$f" | head -n1)
               exec=$(sed -n 's/^Exec=//p' "$f" | head -n1 | sed 's/ %[a-zA-Z]//g')
+              # Skip sessions whose program isn't installed (a .desktop file can outlive it).
+              command -v "\${exec%% *}" >/dev/null 2>&1 || continue
               printf '%s\\t%s\\n' "$name" "$exec"
             done`]
         stdout: StdioCollector {
@@ -84,6 +86,21 @@ Rectangle {
         }
         pending = field.text;
         Greetd.createSession(user.name);
+    }
+
+    // The command greetd runs for the session. greetd joins these arguments
+    // with plain spaces (no quoting) and runs `exec <joined>` through
+    // /bin/sh, so the script is shell-quoted here or it'd be split into
+    // words. The session's output goes to the journal (tag
+    // hayashi-session) instead of the console, where it would flash up
+    // before the compositor takes over the screen.
+    // HAYASHI_SHELL_INTRO (passed separately) makes the shell slide the card in.
+    function sessionCommand(exec: string): var {
+        const quote = s => "'" + s.replace(/'/g, "'\\''") + "'";
+        const script = "if command -v systemd-cat >/dev/null 2>&1; "
+            + "then exec systemd-cat -t hayashi-session " + exec + "; "
+            + "else exec " + exec + "; fi";
+        return ["sh", "-c", quote(script)];
     }
 
     function reset(): void {
@@ -125,8 +142,7 @@ Rectangle {
             root.fail("Wrong password. Try again.");
         }
         function onReadyToLaunch(): void {
-            // HAYASHI_SHELL_INTRO tells the session's shell to slide the card in.
-            Greetd.launch(["sh", "-c", "exec " + root.session.exec], ["HAYASHI_SHELL_INTRO=1"]);
+            Greetd.launch(root.sessionCommand(root.session.exec), ["HAYASHI_SHELL_INTRO=1"]);
         }
         function onError(error: string): void {
             root.fail("Couldn't sign in: " + error);
