@@ -20,7 +20,7 @@
       };
 
       nixosModules = {
-        hayashi-shell = ./nix/nixos-shell.nix;
+        hayashi-shell = import ./nix/nixos-shell.nix self;
         default = self.nixosModules.hayashi-shell;
       };
     };

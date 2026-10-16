@@ -6,12 +6,8 @@ import QtQuick
 // Tuned values from the Card and Base prototype (px at 1920x1200).
 Singleton {
     // Motion: the card is the only thing that moves.
-    // The card leaves on M3's emphasized decelerate: it moves at full speed
-    // from the first frame and settles at the end, so opening feels instant.
-    // (The tuned prototype value was [0.3, 0, 1, 1], which eases in and
-    // barely moves for the first third.)
     readonly property int cardExit: 150
-    readonly property var exitCurve: [0.05, 0.7, 0.1, 1, 1, 1]
+    readonly property var exitCurve: [0.3, 0, 1, 1, 1, 1]
     readonly property int cardReturn: 150
     readonly property var returnCurve: [0, 0, 0, 1, 1, 1]
 

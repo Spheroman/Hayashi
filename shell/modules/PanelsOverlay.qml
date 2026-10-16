@@ -36,10 +36,32 @@ PanelWindow {
 
     // True from the moment the still is ready until the card is back home.
     property bool shown: false
-    // What's laid out under the card: "panels", "launcher" or "lock". It
-    // only changes while a view is open, so closing slides the card back over
-    // whatever was showing.
+    // What's laid out under the card: "panels", "launcher", "lock", or
+    // "intro" (nothing). It only changes while a view is open, so closing
+    // slides the card back over whatever was showing.
     property string look: "panels"
+
+    // Login intro: when the greeter starts the session it sets
+    // HAYASHI_SHELL_INTRO=1, so the shell opens on the bare base (where the
+    // greeter left off) and slides the card in. A new session's card is just
+    // the wallpaper, so the intro card can be drawn instead of captured.
+    Component.onCompleted: {
+        if (Quickshell.env("HAYASHI_SHELL_INTRO") === "1") {
+            look = "intro";
+            card.x = 100000;
+            shown = true;
+            introStart.start();
+        }
+    }
+    Timer {
+        id: introStart
+        // Lets the frame's reserved space and first frames settle first.
+        interval: 350
+        onTriggered: {
+            card.x = win.fullX;
+            win.slideToTarget();
+        }
+    }
 
     readonly property real fullX: card.width + Tokens.border
 
@@ -171,6 +193,14 @@ PanelWindow {
             // With the launcher open, part of the card is still showing;
             // clicking it closes the launcher.
             TapHandler { onTapped: ShellState.closeOverlay() }
+
+            // The login intro's card: an empty workspace, all wallpaper.
+            Rectangle {
+                anchors.fill: parent
+                visible: win.look === "intro"
+                radius: Tokens.radius
+                color: Theme.wallpaper
+            }
 
             Loader {
                 id: capture
