@@ -56,6 +56,10 @@ pub struct Workspace {
 
     /// The currently active child workspace (shown when children share a zone).
     pub active_child: Option<usize>,
+
+    /// Set once the workspace has been removed from the tree. Removed nodes
+    /// stay in the arena as tombstones so other indices remain valid.
+    pub removed: bool,
 }
 
 impl Workspace {
@@ -70,6 +74,7 @@ impl Workspace {
             parent: None,
             size_constraint: None,
             active_child: None,
+            removed: false,
         }
     }
 
@@ -142,6 +147,53 @@ impl WorkspaceTree {
         }
 
         idx
+    }
+
+    /// Remove a leaf workspace from the tree.
+    ///
+    /// The node is detached from its parent and left in the arena as a
+    /// tombstone; indices are never reused, so a stale index can't alias a
+    /// newer workspace. If the removed workspace was the parent's
+    /// `active_child`, another child takes over. If it had focus, focus moves
+    /// to the parent. Returns false (and does nothing) for the root, an
+    /// already-removed node, or a node that still has children.
+    pub fn remove(&mut self, idx: usize) -> bool {
+        let Some(parent) = self.nodes[idx].parent else {
+            return false;
+        };
+        if self.nodes[idx].removed || !self.children(idx).is_empty() {
+            return false;
+        }
+
+        let parent_ws = &mut self.nodes[parent];
+        if let Content::Children(children) = &mut parent_ws.content {
+            children.retain(|&c| c != idx);
+            if children.is_empty() {
+                parent_ws.content = Content::Empty;
+            }
+        }
+        if parent_ws.active_child == Some(idx) {
+            parent_ws.active_child = match &parent_ws.content {
+                Content::Children(children) => children.first().copied(),
+                _ => None,
+            };
+        }
+
+        if self.focus == idx {
+            self.focus = parent;
+        }
+
+        let ws = &mut self.nodes[idx];
+        ws.removed = true;
+        ws.parent = None;
+        ws.active_child = None;
+        ws.content = Content::Empty;
+        true
+    }
+
+    /// Whether a workspace is still part of the tree.
+    pub fn is_live(&self, idx: usize) -> bool {
+        self.nodes.get(idx).is_some_and(|ws| !ws.removed)
     }
 
     /// Descend from a workspace to the leaf that is shown for it, following
@@ -583,6 +635,48 @@ mod tests {
 
         // Searching for nonexistent returns None
         assert_eq!(tree.find_by_name('z', ws_a), None);
+    }
+
+    #[test]
+    fn test_remove_leaf() {
+        let mut tree = WorkspaceTree::new();
+        let ws_a = tree.add_child(0, Workspace::with_name('a'));
+        let ws_b = tree.add_child(0, Workspace::with_name('b'));
+        tree.activate_path(ws_a);
+        tree.focus = ws_a;
+
+        assert!(tree.remove(ws_a));
+        assert!(!tree.is_live(ws_a));
+        assert!(tree.is_live(ws_b));
+        assert_eq!(tree.children(0), vec![ws_b]);
+        // Active child and focus are handed off
+        assert_eq!(tree.nodes[0].active_child, Some(ws_b));
+        assert_eq!(tree.focus, 0);
+        // No longer found by name
+        assert_eq!(tree.find_by_name('a', ws_b), None);
+        // Indices aren't reused
+        let ws_c = tree.add_child(0, Workspace::with_name('c'));
+        assert_ne!(ws_c, ws_a);
+    }
+
+    #[test]
+    fn test_remove_last_child_empties_parent() {
+        let mut tree = WorkspaceTree::new();
+        let ws_p = tree.add_child(0, Workspace::with_name('p'));
+        let ws_n = tree.add_child(ws_p, Workspace::with_name('n'));
+
+        // Can't remove root or a node with children
+        assert!(!tree.remove(0));
+        assert!(!tree.remove(ws_p));
+
+        assert!(tree.remove(ws_n));
+        assert!(matches!(tree.nodes[ws_p].content, Content::Empty));
+        assert_eq!(tree.nodes[ws_p].active_child, None);
+        // Removing twice is a no-op
+        assert!(!tree.remove(ws_n));
+        // p is a leaf now, so it can be removed too
+        assert!(tree.remove(ws_p));
+        assert!(tree.children(0).is_empty());
     }
 
     #[test]

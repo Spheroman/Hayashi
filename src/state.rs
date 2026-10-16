@@ -283,9 +283,16 @@ impl Hayashi {
             }
         }
 
-        // Reap exited launches so they don't linger as zombies.
+        // Reap exited launches. One that exits without ever mapping a window
+        // releases its workspace so it can be pruned.
+        let before = self.spawned.len();
         self.spawned
             .retain_mut(|s| !matches!(s.child.try_wait(), Ok(Some(_)) | Err(_)));
+        let spawn_exited = self.spawned.len() != before;
+
+        if needs_relayout || spawn_exited {
+            needs_relayout |= self.prune_empty_workspaces();
+        }
 
         if needs_relayout {
             self.relayout();
@@ -302,6 +309,42 @@ impl Hayashi {
                 self.focus_window(idx);
             }
         }
+    }
+
+    /// Remove empty leaf workspaces, along with ancestors left empty by that.
+    ///
+    /// A workspace is kept if it has windows, has focus, is waiting for a
+    /// launched client's window, or is the root's only child (so the root
+    /// always stays a container and never holds windows itself).
+    /// Returns true if anything was removed.
+    pub fn prune_empty_workspaces(&mut self) -> bool {
+        let mut removed_any = false;
+        loop {
+            let tree = &self.workspace_tree;
+            let candidate = (0..tree.nodes.len()).find(|&idx| {
+                let Some(parent) = tree.parent(idx) else {
+                    return false; // root, or already removed
+                };
+                tree.is_live(idx)
+                    && idx != tree.focus
+                    && tree.children(idx).is_empty()
+                    && !(parent == tree.root && tree.children(parent).len() == 1)
+                    && !self.workspace_windows.get(&idx).is_some_and(|w| !w.is_empty())
+                    && !self.spawned.iter().any(|s| s.workspace == Some(idx))
+            });
+            let Some(idx) = candidate else {
+                break;
+            };
+
+            info!(
+                "Removing empty workspace: {}",
+                self.workspace_tree.path_string(idx)
+            );
+            self.workspace_tree.remove(idx);
+            self.workspace_windows.remove(&idx);
+            removed_any = true;
+        }
+        removed_any
     }
 
     /// Pick the workspace a new toplevel should be placed in.
@@ -325,7 +368,9 @@ impl Hayashi {
                 .take()
         });
 
-        let target = launched_for.unwrap_or(self.workspace_tree.focus);
+        let target = launched_for
+            .filter(|&ws| self.workspace_tree.is_live(ws))
+            .unwrap_or(self.workspace_tree.focus);
         self.workspace_tree.leaf_under(target)
     }
 
@@ -493,6 +538,7 @@ impl Hayashi {
         // Activate the path from root to the target workspace
         self.workspace_tree.activate_path(target_idx);
         self.workspace_tree.focus = target_idx;
+        self.prune_empty_workspaces();
 
         // Relayout (recomputes visible windows from tree walk)
         self.relayout();
@@ -583,6 +629,9 @@ impl Hayashi {
                 self.workspace_tree.path_string(parent)
             );
             self.workspace_tree.focus = parent;
+            if self.prune_empty_workspaces() {
+                self.relayout();
+            }
             // Clear window focus — we're at a container level now
             self.focused_window = None;
             let serial = SERIAL_COUNTER.next_serial();
