@@ -46,7 +46,7 @@ PanelWindow {
     // greeter left off) and slides the card in. A new session's card is just
     // the wallpaper, so the intro card can be drawn instead of captured.
     Component.onCompleted: {
-        if (Quickshell.env("HAYASHI_SHELL_INTRO") === "1") {
+        if (ShellState.introRunning) {
             look = "intro";
             card.x = 100000;
             shown = true;
@@ -129,6 +129,7 @@ PanelWindow {
             } else {
                 win.shown = false;
                 capture.active = false;
+                ShellState.introRunning = false;
             }
         }
     }

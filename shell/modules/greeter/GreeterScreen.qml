@@ -122,8 +122,11 @@ Rectangle {
             root.fail("Wrong password. Try again.");
         }
         function onReadyToLaunch(): void {
+            // Clear the console underneath (whatever cage leaves on it would
+            // show for a moment) and keep the session's own console output off it.
             // HAYASHI_SHELL_INTRO tells the session's shell to slide the card in.
-            Greetd.launch(["sh", "-c", root.session.exec], ["HAYASHI_SHELL_INTRO=1"]);
+            const clear = "printf '\\033[2J\\033[3J\\033[H' >/dev/tty 2>/dev/null; ";
+            Greetd.launch(["sh", "-c", clear + "exec " + root.session.exec + " >/dev/null 2>&1"], ["HAYASHI_SHELL_INTRO=1"]);
         }
         function onError(error: string): void {
             root.fail("Couldn't sign in: " + error);

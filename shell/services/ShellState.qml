@@ -18,6 +18,12 @@ Singleton {
     property bool locking: false
     property bool sessionLocked: false
 
+    // Login intro: the greeter starts the session with HAYASHI_SHELL_INTRO=1,
+    // and the shell opens on the bare base and slides the card in. Until it
+    // finishes, everything (wallpaper included) is drawn in the base color,
+    // so the first frames match the greeter and Hyprland's background.
+    property bool introRunning: Quickshell.env("HAYASHI_SHELL_INTRO") === "1"
+
     // Whether the card should be away for any reason.
     readonly property bool overlayOpen: panelsOpen || launcherOpen || locking
 
