@@ -49,7 +49,7 @@ See `docs/KEYBINDINGS.md` for the default keybindings, along with clarification 
 7. **Layer shell support** — Bars, launchers, notifications
 8. **Configuration system** — Templates, rules, keybinds
 9. **Session persistence** — Save/restore tree state
-10. **Default rice** — Bundled waybar config, theme, documentation
+10. **Default rice** — Bundled Quickshell shell (`shell/`), theme, documentation
 
 ### Getting Started
 
