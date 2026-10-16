@@ -60,6 +60,24 @@ in
         description = "The shell's surface color (hex, no #), used for the console background.";
       };
     };
+
+    bootSplash = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = cfg.greeter.enable && cfg.greeter.seamless;
+        defaultText = lib.literalExpression "greeter.enable && greeter.seamless";
+        description = ''
+          A Plymouth boot splash in the shell's colors: the surface color with
+          a spinner, so boot runs into the greeter on the same background.
+        '';
+      };
+
+      accent = lib.mkOption {
+        type = lib.types.strMatching "[0-9a-fA-F]{6}";
+        default = "88d8ae";
+        description = "The spinner's color (hex, no #); the shell's primary.";
+      };
+    };
   };
 
   config = lib.mkMerge [
@@ -82,6 +100,19 @@ in
         nerd-fonts.space-mono
         (google-fonts.override { fonts = [ "SpaceGrotesk" ]; })
       ];
+    })
+
+    (lib.mkIf cfg.bootSplash.enable {
+      boot.plymouth = {
+        enable = true;
+        theme = "hayashi";
+        themePackages = [
+          (pkgs.callPackage ./plymouth-theme.nix {
+            background = cfg.greeter.consoleBackground;
+            accent = cfg.bootSplash.accent;
+          })
+        ];
+      };
     })
 
     (lib.mkIf (cfg.greeter.enable && cfg.greeter.seamless) {

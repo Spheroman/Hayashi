@@ -11,6 +11,7 @@
     {
       packages = forAllSystems (pkgs: rec {
         hayashi-shell = pkgs.callPackage ./nix/shell.nix { };
+        hayashi-plymouth-theme = pkgs.callPackage ./nix/plymouth-theme.nix { };
         default = hayashi-shell;
       });
 

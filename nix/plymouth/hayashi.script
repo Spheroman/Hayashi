@@ -1,0 +1,52 @@
+# Hayashi boot splash: the shell's surface color with a spinner in the
+# middle, so boot runs straight into the greeter on the same background.
+# @...@ values are filled in by nix/plymouth-theme.nix.
+
+Window.SetBackgroundTopColor(@bgR@, @bgG@, @bgB@);
+Window.SetBackgroundBottomColor(@bgR@, @bgG@, @bgB@);
+
+# The spinner is drawn at 2x and scaled down, so it stays smooth.
+spinner.image = Image("spinner.png").Scale(@size@, @size@);
+spinner.sprite = Sprite();
+spinner.sprite.SetZ(10);
+spinner.angle = 0;
+
+fun center(sprite, image) {
+    sprite.SetX(Window.GetX() + Window.GetWidth() / 2 - image.GetWidth() / 2);
+    sprite.SetY(Window.GetY() + Window.GetHeight() / 2 - image.GetHeight() / 2);
+}
+
+# Plymouth calls this about 50 times a second: one turn every ~1.2 s.
+fun refresh_callback() {
+    spinner.angle += 0.105;
+    rotated = spinner.image.Rotate(spinner.angle);
+    spinner.sprite.SetImage(rotated);
+    center(spinner.sprite, rotated);
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Passphrase prompts (encrypted disks): the prompt and one dot per
+# character, below the spinner.
+prompt.sprite = Sprite();
+bullets.sprite = Sprite();
+
+fun display_password_callback(text, count) {
+    prompt.image = Image.Text(text, @fgR@, @fgG@, @fgB@);
+    prompt.sprite.SetImage(prompt.image);
+    prompt.sprite.SetX(Window.GetX() + Window.GetWidth() / 2 - prompt.image.GetWidth() / 2);
+    prompt.sprite.SetY(Window.GetY() + Window.GetHeight() / 2 + @size@);
+
+    dots = "";
+    for (i = 0; i < count; i++) dots += "*";  # "*" renders with any font
+    bullets.image = Image.Text(dots, @fgR@, @fgG@, @fgB@);
+    bullets.sprite.SetImage(bullets.image);
+    bullets.sprite.SetX(Window.GetX() + Window.GetWidth() / 2 - bullets.image.GetWidth() / 2);
+    bullets.sprite.SetY(Window.GetY() + Window.GetHeight() / 2 + @size@ + 2 * prompt.image.GetHeight());
+}
+Plymouth.SetDisplayPasswordFunction(display_password_callback);
+
+fun display_normal_callback() {
+    prompt.sprite.SetOpacity(0);
+    bullets.sprite.SetOpacity(0);
+}
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
