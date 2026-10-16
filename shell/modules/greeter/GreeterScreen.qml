@@ -52,7 +52,10 @@ Rectangle {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.sessions = text.trim().split("\n").filter(l => l.includes("\t"))
-                    .map(l => ({ name: l.split("\t")[0], exec: l.split("\t")[1] }));
+                    .map(l => ({ name: l.split("\t")[0], exec: l.split("\t")[1] }))
+                    // By display name, so "Hyprland" comes before "Hyprland (uwsm-managed)"
+                    // (file order depends on the locale, and the greeter's is plain C).
+                    .sort((a, b) => a.name.localeCompare(b.name));
             }
         }
     }
@@ -122,11 +125,8 @@ Rectangle {
             root.fail("Wrong password. Try again.");
         }
         function onReadyToLaunch(): void {
-            // Clear the console underneath (whatever cage leaves on it would
-            // show for a moment) and keep the session's own console output off it.
             // HAYASHI_SHELL_INTRO tells the session's shell to slide the card in.
-            const clear = "printf '\\033[2J\\033[3J\\033[H' >/dev/tty 2>/dev/null; ";
-            Greetd.launch(["sh", "-c", clear + "exec " + root.session.exec + " >/dev/null 2>&1"], ["HAYASHI_SHELL_INTRO=1"]);
+            Greetd.launch(["sh", "-c", "exec " + root.session.exec], ["HAYASHI_SHELL_INTRO=1"]);
         }
         function onError(error: string): void {
             root.fail("Couldn't sign in: " + error);

@@ -9,6 +9,22 @@ let
   shellPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.hayashi-shell;
   sessions = "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions";
 
+  # greetd runs this on the login VT. Clearing the VT first means nothing
+  # (boot messages, say) is left on it to show for a moment when cage hands
+  # the screen to the session.
+  greeter = pkgs.writeShellScript "hayashi-greeter" ''
+    printf '\033[2J\033[3J\033[H'
+    # cage: -d no window decorations, -s allow switching VTs,
+    # -m last use the last-connected output. Qt draws its own title bar when
+    # the compositor doesn't, so QT_WAYLAND_DISABLE_WINDOWDECORATION turns
+    # that off too.
+    exec ${lib.getExe pkgs.cage} -d -s -m last -- \
+      ${pkgs.coreutils}/bin/env \
+        HAYASHI_GREETER_SESSIONS=${sessions} \
+        QT_WAYLAND_DISABLE_WINDOWDECORATION=1 \
+      ${pkgs.quickshell}/bin/qs -p ${shellPackage}/share/hayashi-shell/greeter.qml
+  '';
+
   # The Linux console's default 16-color palette, with color 0 (the console
   # background) replaced by the shell's surface color.
   hex = s: (builtins.fromTOML "v = 0x${s}").v;
@@ -58,17 +74,7 @@ in
         enable = true;
         settings.default_session = {
           user = "greeter";
-          # cage: -d no window decorations, -s allow switching VTs,
-          # -m last use the last-connected output.
-          command = lib.concatStringsSep " " [
-            "${lib.getExe pkgs.cage} -d -s -m last --"
-            "${pkgs.coreutils}/bin/env"
-            "HAYASHI_GREETER_SESSIONS=${sessions}"
-            # Qt draws its own title bar when the compositor doesn't; cage
-            # doesn't, so turn Qt's off too.
-            "QT_WAYLAND_DISABLE_WINDOWDECORATION=1"
-            "${pkgs.quickshell}/bin/qs -p ${shellPackage}/share/hayashi-shell/greeter.qml"
-          ];
+          command = "${greeter}";
         };
       };
 
