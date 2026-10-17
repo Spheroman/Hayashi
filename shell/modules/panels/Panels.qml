@@ -8,6 +8,10 @@ import qs.modules.notifications
 Item {
     id: root
 
+    // The lock screen's version (see LockScreen): no setting cards, no Lock or
+    // Log out, and notifications can't be opened.
+    property bool restricted: false
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 40
@@ -23,10 +27,10 @@ Item {
             spacing: 20
 
             ClockBlock {}
-            Tiles { Layout.fillWidth: true }
+            Tiles { Layout.fillWidth: true; restricted: root.restricted }
             Sliders { Layout.fillWidth: true }
             Item { Layout.fillHeight: true }
-            Session { Layout.fillWidth: true }
+            Session { Layout.fillWidth: true; restricted: root.restricted }
         }
 
         ColumnLayout {

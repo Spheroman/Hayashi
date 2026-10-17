@@ -92,14 +92,14 @@ Item {
         }
 
         // Battery and clock: one button that toggles the panel view, like
-        // Super+Esc. Tinted while the panel view is open.
+        // Super+Esc (on the lock screen, the restricted one). Tinted while it's open.
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             width: Tokens.barWidth - 12
             height: status.implicitHeight + 20
             radius: width / 2
             color: statusArea.containsMouse && statusArea.enabled ? Theme.surfaceContainerHigh
-                : ShellState.panelsOpen ? Theme.surfaceContainer : "transparent"
+                : (ShellState.locking ? ShellState.lockPanels : ShellState.panelsOpen) ? Theme.surfaceContainer : "transparent"
 
             Behavior on color {
                 ColorAnimation { duration: 150 }
@@ -149,7 +149,6 @@ Item {
                 id: statusArea
 
                 anchors.fill: parent
-                enabled: !ShellState.locking
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: ShellState.togglePanels()

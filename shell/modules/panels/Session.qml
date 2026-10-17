@@ -11,6 +11,9 @@ Flow {
 
     spacing: 10
 
+    // On the lock screen: no Lock (already locked) or Log out.
+    property bool restricted: false
+
     property string armed: ""
     Timer {
         id: disarm
@@ -32,8 +35,8 @@ Flow {
 
     // Locks directly: the card is already away, so the lock layout replaces the
     // panels and the session lock engages right away.
-    SessionButton { icon: "lock"; label: "Lock"; onClicked: { root.armed = ""; ShellState.lock(); } }
-    SessionButton { icon: "logout"; label: "Log out"; onClicked: root.run("logout", "exit", false) }
+    SessionButton { visible: !root.restricted; icon: "lock"; label: "Lock"; onClicked: { root.armed = ""; ShellState.lock(); } }
+    SessionButton { visible: !root.restricted; icon: "logout"; label: "Log out"; onClicked: root.run("logout", "exit", false) }
     SessionButton { icon: "bedtime"; label: "Suspend"; onClicked: root.run("suspend", ["systemctl", "suspend"], false) }
     SessionButton {
         icon: "restart_alt"

@@ -15,6 +15,8 @@ Item {
 
     // The id of the tile whose card is open, or "".
     property string expanded: ""
+    // On the lock screen: tiles toggle, but their cards don't open.
+    property bool restricted: false
 
     readonly property var rows: [["wifi", "bluetooth", "sound"], ["power", "theme", "dnd"]]
     readonly property int gap: 10
@@ -136,7 +138,7 @@ Item {
                             detail: i.detail ?? ""
                             on: i.on ?? false
                             available: i.available ?? true
-                            hasDetails: (i.details ?? null) !== null
+                            hasDetails: !root.restricted && (i.details ?? null) !== null
                             open: root.expanded === modelData
 
                             onClicked: root.toggle(modelData)

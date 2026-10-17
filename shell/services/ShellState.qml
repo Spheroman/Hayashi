@@ -17,6 +17,10 @@ Singleton {
     // compositor's session lock (ext-session-lock), which looks identical.
     property bool locking: false
     property bool sessionLocked: false
+    // The panel view on the lock screen (the clock button or Super+Esc while
+    // locked): a restricted one, drawn by the lock surface in place of the
+    // password field. Cleared whenever the lock starts or ends.
+    property bool lockPanels: false
 
     // Login intro: the greeter starts the session with HAYASHI_SHELL_INTRO=1,
     // and the shell opens on the bare base and slides the card in. Until it
@@ -30,7 +34,7 @@ Singleton {
     // When switching between views, the new one opens before the old one
     // closes, so overlayOpen never dips and the card moves straight across.
     function togglePanels(): void {
-        if (locking) return;
+        if (locking) { lockPanels = !lockPanels; return; }
         if (panelsOpen) panelsOpen = false;
         else openPanels();
     }
@@ -49,7 +53,7 @@ Singleton {
         }
     }
     function closeOverlay(): void {
-        if (locking) return;
+        if (locking) { lockPanels = false; return; }
         panelsOpen = false;
         launcherOpen = false;
     }
@@ -61,6 +65,7 @@ Singleton {
         }
         console.info("lock: requested at", new Date().toISOString());
         locking = true;
+        lockPanels = false;
         panelsOpen = false;
         launcherOpen = false;
         deadline.restart();
@@ -68,6 +73,7 @@ Singleton {
 
     function unlock(): void {
         console.info("lock: unlocked at", new Date().toISOString());
+        lockPanels = false;
         sessionLocked = false;
         locking = false;
     }

@@ -34,7 +34,9 @@ Rectangle {
     }
 
     HoverHandler { id: hover }
-    TapHandler { onTapped: Notifications.activate(root.n) }
+    // Opening a notification or using its actions runs the app's handler,
+    // so not from behind the lock screen; dismissing still works.
+    TapHandler { enabled: !ShellState.locking; onTapped: Notifications.activate(root.n) }
 
     RowLayout {
         id: body
@@ -126,7 +128,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.topMargin: 6
                 spacing: 6
-                visible: actions.count > 0
+                visible: actions.count > 0 && !ShellState.locking
 
                 Repeater {
                     id: actions
