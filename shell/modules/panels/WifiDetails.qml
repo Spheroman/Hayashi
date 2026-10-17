@@ -24,7 +24,7 @@ ColumnLayout {
         const target = Wifi.networks;
         for (let i = 0; i < target.length; i++) {
             const t = target[i];
-            const row = { ssid: t.ssid, strength: t.signal, secure: t.secure, active: t.active, saved: t.saved };
+            const row = { ssid: t.ssid, strength: t.signal, secure: t.secure, enterprise: t.enterprise, active: t.active, saved: t.saved };
             let j = -1;
             for (let k = i; k < netModel.count; k++) {
                 if (netModel.get(k).ssid === t.ssid) { j = k; break; }
@@ -100,6 +100,7 @@ ColumnLayout {
                     required property string ssid
                     required property int strength
                     required property bool secure
+                    required property bool enterprise
                     required property bool active
                     required property bool saved
                     readonly property bool isOpen: root.openSsid === ssid
@@ -111,17 +112,17 @@ ColumnLayout {
                     open: isOpen
                     title: ssid
                     subtitle: Wifi.connecting === ssid ? "Connecting…"
-                        : active ? "Connected" : saved ? "Saved" : secure ? "Secured" : "Open"
+                        : active ? "Connected" : saved ? "Saved" : enterprise ? "Sign-in required" : secure ? "Secured" : "Open"
                     trailingIcon: secure ? "lock" : ""
 
                     onClicked: {
                         if (isOpen) {
                             root.openSsid = "";
                         } else if (!active && (saved || !secure)) {
-                            Wifi.connect(ssid, "");
+                            Wifi.connect(ssid, "", null);
                         } else {
                             root.openSsid = ssid;
-                            Qt.callLater(() => password.forceActiveFocus());
+                            Qt.callLater(() => (enterprise ? username : password).focusField());
                         }
                     }
                     onTrailingClicked: clicked()
@@ -140,7 +141,7 @@ ColumnLayout {
                             visible: !active
                             text: "Connect"
                             kind: "filled"
-                            onClicked: { Wifi.connect(ssid, ""); root.openSsid = ""; }
+                            onClicked: { Wifi.connect(ssid, "", null); root.openSsid = ""; }
                         }
                         PillButton {
                             text: "Forget"
@@ -149,54 +150,101 @@ ColumnLayout {
                         }
                     }
 
-                    // New secured network: password.
-                    RowLayout {
+                    // New secured network: a password, or for enterprise
+                    // networks a sign-in.
+                    property string method: "peap"
+                    property bool verify: true
+                    property bool domainEdited: false
+
+                    function submit(): void {
+                        if (!canConnect) return;
+                        Wifi.connect(ssid, password.text, enterprise
+                            ? { identity: username.text.trim(), method: method, verify: verify, domain: domain.text.trim() }
+                            : null);
+                        password.text = "";
+                        root.openSsid = "";
+                    }
+                    readonly property bool canConnect: enterprise
+                        ? username.text.trim() !== "" && password.text !== "" && (!verify || domain.text.trim() !== "")
+                        : password.text.length >= 8
+
+                    ColumnLayout {
                         visible: !active && !saved && secure
                         spacing: 8
 
-                        Rectangle {
+                        Field {
+                            id: username
                             Layout.fillWidth: true
-                            implicitHeight: 40
-                            radius: 20
-                            color: Theme.surfaceContainerHighest
-                            border.width: 2
-                            border.color: password.activeFocus ? Theme.primary : "transparent"
+                            visible: enterprise
+                            placeholder: "Username (e.g. name@school.edu)"
+                            onAccepted: password.focusField()
+                            // The realm (after the @) is usually the domain
+                            // of the network's certificate, so it fills the
+                            // domain until that's typed over.
+                            onEdited: if (!row.domainEdited) domain.text = text.includes("@") ? text.split("@").pop().trim() : ""
+                        }
 
-                            TextInput {
+                        RowLayout {
+                            spacing: 8
+
+                            Field {
                                 id: password
-
-                                anchors.fill: parent
-                                anchors.leftMargin: 16
-                                anchors.rightMargin: 16
-                                verticalAlignment: TextInput.AlignVCenter
-                                echoMode: TextInput.Password
-                                passwordCharacter: "•"
-                                color: Theme.fgSurface
-                                font.family: Tokens.fontFamily
-                                font.pixelSize: 14
-                                clip: true
-                                onAccepted: connectButton.clicked()
-
-                                Label {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    visible: password.text === ""
-                                    text: "Password"
-                                    font.pixelSize: 14
-                                    color: Theme.fgSurfaceVariant
-                                }
+                                Layout.fillWidth: true
+                                placeholder: "Password"
+                                secret: true
+                                onAccepted: row.submit()
+                            }
+                            PillButton {
+                                text: "Connect"
+                                kind: "filled"
+                                active: row.canConnect
+                                onClicked: row.submit()
                             }
                         }
-                        PillButton {
-                            id: connectButton
-                            text: "Connect"
-                            kind: "filled"
-                            active: password.text.length >= 8
-                            onClicked: {
-                                if (password.text.length < 8) return;
-                                Wifi.connect(ssid, password.text);
-                                password.text = "";
-                                root.openSsid = "";
+
+                        // EAP method and the server certificate check. PEAP
+                        // and checking against the system's CAs suit most
+                        // networks; eduroam often uses TTLS instead.
+                        RowLayout {
+                            visible: enterprise
+                            spacing: 8
+
+                            PillButton {
+                                text: "PEAP"
+                                kind: row.method === "peap" ? "tonal" : "outlined"
+                                onClicked: row.method = "peap"
                             }
+                            PillButton {
+                                text: "TTLS"
+                                kind: row.method === "ttls" ? "tonal" : "outlined"
+                                onClicked: row.method = "ttls"
+                            }
+                            Item { Layout.fillWidth: true }
+                            PillButton {
+                                icon: row.verify ? "verified_user" : "remove_moderator"
+                                text: row.verify ? "Check certificate" : "Don't check"
+                                kind: row.verify ? "tonal" : "outlined"
+                                onClicked: row.verify = !row.verify
+                            }
+                        }
+
+                        Field {
+                            id: domain
+                            Layout.fillWidth: true
+                            visible: enterprise && row.verify
+                            placeholder: "Certificate domain (e.g. northeastern.edu)"
+                            onEdited: row.domainEdited = true
+                            onAccepted: row.submit()
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 12
+                            visible: enterprise && !row.verify
+                            text: "Without the check, a fake network with this name could collect your password."
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 12
+                            color: Theme.error
                         }
                     }
                 }

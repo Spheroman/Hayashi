@@ -9,7 +9,9 @@ Singleton {
     id: root
 
     property bool enabled: false
-    // [{ ssid, signal (0-100), security, secure, active, saved }], connected first, then by signal.
+    // [{ ssid, signal (0-100), security, secure, enterprise, active, saved }], connected
+    // first, then by signal. `enterprise` networks (WPA 802.1X: eduroam and most
+    // campus and office networks) sign in with a username and password.
     property var networks: []
     readonly property var active: networks.find(n => n.active) ?? null
 
@@ -40,27 +42,51 @@ Singleton {
     // `nmcli connection up` reads with passwd-file, and the file is deleted
     // as soon as nmcli finishes. A failed attempt also removes the new
     // saved network, so a wrong password doesn't leave a broken one behind.
-    function connect(ssid: string, password: string): void {
+    //
+    // Enterprise networks also take `signIn`: { identity, method ("peap" or
+    // "ttls"), verify (check the server's certificate against the system's
+    // CAs), domain (optional: the certificate must be for this domain) }.
+    // Only the password is secret; the username goes on the command line.
+    function connect(ssid: string, password: string, signIn: var): void {
         error = "";
         connecting = ssid;
         const n = networks.find(x => x.ssid === ssid);
 
         if (password === "") {
             connectProc.newProfile = "";
+            connectProc.enterprise = false;
             connectProc.command = n?.saved ? ["nmcli", "connection", "up", "id", ssid] : ["nmcli", "device", "wifi", "connect", ssid];
             connectProc.running = true;
             return;
         }
 
-        // WPA3-only networks use SAE; everything else WPA-PSK.
-        const sec = n?.security ?? "";
-        const keyMgmt = /WPA3/.test(sec) && !/WPA2|WPA1/.test(sec) ? "sae" : "wpa-psk";
+        const add = ["nmcli", "connection", "add", "type", "wifi", "con-name", ssid, "ssid", ssid];
+        let secret;
+        if (signIn) {
+            // PEAP almost always pairs with MSCHAPv2; TTLS (common on
+            // eduroam) with PAP.
+            add.push("wifi-sec.key-mgmt", "wpa-eap",
+                "802-1x.eap", signIn.method,
+                "802-1x.phase2-auth", signIn.method === "ttls" ? "pap" : "mschapv2",
+                "802-1x.identity", signIn.identity);
+            if (signIn.verify) {
+                add.push("802-1x.system-ca-certs", "yes");
+                if (signIn.domain) add.push("802-1x.domain-suffix-match", signIn.domain);
+            }
+            secret = "802-1x.password:" + password;
+        } else {
+            // WPA3-only networks use SAE; everything else WPA-PSK.
+            const sec = n?.security ?? "";
+            add.push("wifi-sec.key-mgmt", /WPA3/.test(sec) && !/WPA2|WPA1/.test(sec) ? "sae" : "wpa-psk");
+            secret = "802-11-wireless-security.psk:" + password;
+        }
 
         secretFile.path = `${root.runtimeDir}/hayashi-shell-wifi-${Date.now()}`;
-        secretFile.setText("802-11-wireless-security.psk:" + password + "\n");
+        secretFile.setText(secret + "\n");
 
         addProc.ssid = ssid;
-        addProc.command = ["nmcli", "connection", "add", "type", "wifi", "con-name", ssid, "ssid", ssid, "wifi-sec.key-mgmt", keyMgmt];
+        addProc.enterprise = !!signIn;
+        addProc.command = add;
         addProc.running = true;
     }
 
@@ -82,6 +108,7 @@ Singleton {
         id: addProc
 
         property string ssid: ""
+        property bool enterprise: false
 
         stderr: StdioCollector { id: addErr }
         onExited: code => {
@@ -92,6 +119,7 @@ Singleton {
                 return;
             }
             connectProc.newProfile = ssid;
+            connectProc.enterprise = enterprise;
             connectProc.command = ["nmcli", "connection", "up", "id", ssid, "passwd-file", secretFile.path];
             connectProc.running = true;
         }
@@ -137,7 +165,7 @@ Singleton {
                     if (section === "--saved") {
                         if (f[1] === "802-11-wireless") saved.add(f[0]);
                     } else if (section === "--scan" && f.length >= 4 && f[1] !== "") {
-                        const n = { ssid: f[1], signal: +f[2] || 0, security: f[3] ?? "", secure: (f[3] ?? "") !== "" && f[3] !== "--", active: f[0] === "*" };
+                        const n = { ssid: f[1], signal: +f[2] || 0, security: f[3], secure: f[3] !== "" && f[3] !== "--", enterprise: /802\.1X/.test(f[3]), active: f[0] === "*" };
                         const prev = bySsid[n.ssid];
                         if (!prev || n.active || (!prev.active && n.signal > prev.signal)) bySsid[n.ssid] = n;
                     }
@@ -154,13 +182,19 @@ Singleton {
 
         // Set when this attempt created the saved network (new secured network).
         property string newProfile: ""
+        property bool enterprise: false
 
         stderr: StdioCollector { id: connectErr }
         onExited: (code, status) => {
             if (newProfile !== "") root.removeSecret();
             if (code !== 0) {
                 const msg = connectErr.text.trim().replace(/^Error:\s*/, "");
-                root.error = /secrets were required|password|802-11-wireless-security/i.test(msg)
+                // nmcli can't tell a wrong password from a rejected
+                // certificate on enterprise networks: both are an 802.1X
+                // failure.
+                root.error = enterprise
+                    ? "Couldn't sign in. Check the username and password; if they're right, the certificate check may be failing (try a different method, or the domain)."
+                    : /secrets were required|password|802-11-wireless-security/i.test(msg)
                     ? "Wrong password, or the network needs one."
                     : msg || "Couldn't connect.";
                 if (newProfile !== "") Quickshell.execDetached(["nmcli", "connection", "delete", "id", newProfile]);
