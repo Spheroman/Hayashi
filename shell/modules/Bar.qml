@@ -91,37 +91,69 @@ Item {
             }
         }
 
-        Column {
+        // Battery and clock: one button that toggles the panel view, like
+        // Super+Esc. Tinted while the panel view is open.
+        Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
-            visible: UPower.displayDevice.isLaptopBattery
-            spacing: 2
+            width: Tokens.barWidth - 12
+            height: status.implicitHeight + 20
+            radius: width / 2
+            color: statusArea.containsMouse && statusArea.enabled ? Theme.surfaceContainerHigh
+                : ShellState.panelsOpen ? Theme.surfaceContainer : "transparent"
 
-            Icon {
-                anchors.horizontalCenter: parent.horizontalCenter
-                readonly property var dev: UPower.displayDevice
-                name: dev.state === UPowerDeviceState.Charging || dev.state === UPowerDeviceState.FullyCharged ? "battery_charging_full" : "battery_full"
-                color: Theme.fgSurfaceVariant
-                size: 20
+            Behavior on color {
+                ColorAnimation { duration: 150 }
             }
-            Label {
-                anchors.horizontalCenter: parent.horizontalCenter
-                // UPower reports 0-1 on some versions and 0-100 on others.
-                readonly property real p: UPower.displayDevice.percentage
-                text: Math.round(p > 1 ? p : p * 100) + "%"
-                color: Theme.fgSurfaceVariant
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-            }
-        }
 
-        Label {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: Qt.formatDateTime(clock.date, "HH") + "\n" + Qt.formatDateTime(clock.date, "mm")
-            horizontalAlignment: Text.AlignHCenter
-            lineHeight: 0.95
-            font.pixelSize: 15
-            font.weight: Font.DemiBold
-            font.features: { "tnum": 1 }
+            Column {
+                id: status
+
+                anchors.centerIn: parent
+                spacing: 10
+
+                Column {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: UPower.displayDevice.isLaptopBattery
+                    spacing: 2
+
+                    Icon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        readonly property var dev: UPower.displayDevice
+                        name: dev.state === UPowerDeviceState.Charging || dev.state === UPowerDeviceState.FullyCharged ? "battery_charging_full" : "battery_full"
+                        color: Theme.fgSurfaceVariant
+                        size: 20
+                    }
+                    Label {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        // UPower reports 0-1 on some versions and 0-100 on others.
+                        readonly property real p: UPower.displayDevice.percentage
+                        text: Math.round(p > 1 ? p : p * 100) + "%"
+                        color: Theme.fgSurfaceVariant
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: Qt.formatDateTime(clock.date, "HH") + "\n" + Qt.formatDateTime(clock.date, "mm")
+                    horizontalAlignment: Text.AlignHCenter
+                    lineHeight: 0.95
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                    font.features: { "tnum": 1 }
+                }
+            }
+
+            MouseArea {
+                id: statusArea
+
+                anchors.fill: parent
+                enabled: !ShellState.locking
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: ShellState.togglePanels()
+            }
         }
     }
 
