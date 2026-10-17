@@ -15,6 +15,9 @@ Singleton {
 
     // While true (the Wi-Fi card is open), the list refreshes every 10 s.
     property bool watching: false
+    // While true (a password field is open), the automatic refresh pauses,
+    // so the list doesn't reorder under the user.
+    property bool paused: false
 
     property string connecting: ""
     property string error: ""
@@ -133,7 +136,7 @@ Singleton {
                     const f = root.splitTerse(line);
                     if (section === "--saved") {
                         if (f[1] === "802-11-wireless") saved.add(f[0]);
-                    } else if (section === "--scan" && f[1] !== "") {
+                    } else if (section === "--scan" && f.length >= 4 && f[1] !== "") {
                         const n = { ssid: f[1], signal: +f[2] || 0, security: f[3] ?? "", secure: (f[3] ?? "") !== "" && f[3] !== "--", active: f[0] === "*" };
                         const prev = bySsid[n.ssid];
                         if (!prev || n.active || (!prev.active && n.signal > prev.signal)) bySsid[n.ssid] = n;
@@ -177,7 +180,7 @@ Singleton {
     Timer {
         interval: 10000
         repeat: true
-        running: root.watching
+        running: root.watching && !root.paused
         onTriggered: root.refresh()
     }
 

@@ -6,20 +6,21 @@ import QtQuick
 import qs.config
 import qs.services
 
-// Quick settings: three tiles to a row. Tapping a tile toggles it; its arrow
-// expands it in place into a full-width card at the top, and the other tiles
-// flow on after it. One card is open at a time.
+// Quick settings: two rows of three tiles that never move. Tapping a tile
+// toggles it; its arrow opens its card directly below the tile's row
+// (pushing only what's below down), and the tile stays put, outlined. One
+// card is open at a time.
 Item {
     id: root
 
-    // The id of the expanded tile, or "".
+    // The id of the tile whose card is open, or "".
     property string expanded: ""
 
-    readonly property var ids: ["wifi", "bluetooth", "sound", "power", "theme", "dnd"]
-    readonly property var order: expanded === "" ? ids : [expanded].concat(ids.filter(i => i !== expanded))
-    readonly property real cell: (width - 2 * flow.spacing) / 3
+    readonly property var rows: [["wifi", "bluetooth", "sound"], ["power", "theme", "dnd"]]
+    readonly property int gap: 10
+    readonly property real cell: (width - 2 * gap) / 3
 
-    implicitHeight: flow.implicitHeight
+    implicitHeight: column.implicitHeight
 
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property var sink: Pipewire.defaultAudioSink
@@ -98,30 +99,60 @@ Item {
     Component { id: soundDetails; SoundDetails {} }
     Component { id: powerDetails; PowerDetails {} }
 
-    Flow {
-        id: flow
+    Column {
+        id: column
 
         width: parent.width
-        spacing: 10
+        spacing: root.gap
 
         Repeater {
-            model: root.order
+            model: root.rows
 
-            delegate: Tile {
-                required property string modelData
-                readonly property var i: root.info(modelData)
+            delegate: Column {
+                id: row
 
-                width: expanded ? flow.width : root.cell
-                expanded: root.expanded === modelData
-                icon: i.icon ?? ""
-                label: i.label ?? ""
-                detail: i.detail ?? ""
-                on: i.on ?? false
-                available: i.available ?? true
-                details: i.details ?? null
+                required property var modelData
+                readonly property bool cardHere: modelData.includes(root.expanded)
 
-                onClicked: root.toggle(modelData)
-                onExpandToggled: root.expanded = root.expanded === modelData ? "" : modelData
+                width: column.width
+                spacing: 0
+
+                Row {
+                    spacing: root.gap
+
+                    Repeater {
+                        model: row.modelData
+
+                        delegate: Tile {
+                            required property string modelData
+                            readonly property var i: root.info(modelData)
+
+                            width: root.cell
+                            icon: i.icon ?? ""
+                            label: i.label ?? ""
+                            detail: i.detail ?? ""
+                            on: i.on ?? false
+                            available: i.available ?? true
+                            hasDetails: (i.details ?? null) !== null
+                            open: root.expanded === modelData
+
+                            onClicked: root.toggle(modelData)
+                            onExpandToggled: root.expanded = root.expanded === modelData ? "" : modelData
+                        }
+                    }
+                }
+
+                // The gap above the card grows with it, so nothing jumps.
+                Item {
+                    width: 1
+                    height: Math.min(root.gap, card.height)
+                }
+
+                DetailCard {
+                    id: card
+                    width: column.width
+                    content: row.cardHere ? (root.info(root.expanded).details ?? null) : null
+                }
             }
         }
     }
