@@ -1,8 +1,9 @@
 # The shell's QML, installed to share/hayashi-shell, plus a `hayashi-shell`
 # command that runs it.
 #
-#   hayashi-shell             start the shell (the store copy), replacing any
-#                             copy already running, from any build
+#   hayashi-shell             start the shell (the store copy) in the background,
+#                             replacing any copy already running, from any build
+#   hayashi-shell -f          the same, but attached to the terminal (debugging)
 #   hayashi-shell msg WORD    fast keybind message: panels, launcher, lock or close
 #   hayashi-shell ipc ...     talk to the running shell, e.g. `ipc call panels toggle`
 #   hayashi-shell dev PATH    restart it from a working copy, for live editing
@@ -91,9 +92,17 @@ stdenvNoCC.mkDerivation {
       status)
         config
         ;;
-      *)
+      --foreground|-f)
+        # Attached to the terminal, with its log output there (for debugging).
+        shift
         stop_all
         exec "$qs" -p "$(config)" "$@"
+        ;;
+      *)
+        # Detached, so closing the terminal it was started from doesn't
+        # take the shell with it.
+        stop_all
+        exec "$qs" -p "$(config)" -d "$@"
         ;;
     esac
     EOF
