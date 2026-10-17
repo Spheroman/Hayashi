@@ -42,6 +42,10 @@ Singleton {
     function applyDark(): void {
         Theme.dark = dark;
         Quickshell.execDetached(["dconf", "write", "/org/gnome/desktop/interface/color-scheme", dark ? "'prefer-dark'" : "'prefer-light'"]);
+        // foot doesn't follow color-scheme, but switches between its
+        // [colors-dark] and [colors-light] on SIGUSR1/SIGUSR2. Signalling the
+        // server switches its windows and the ones it opens later.
+        Quickshell.execDetached(["pkill", dark ? "-USR1" : "-USR2", "-x", "foot|footclient"]);
     }
 
     Process {
