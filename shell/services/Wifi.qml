@@ -97,11 +97,13 @@ Singleton {
     readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
 
     // The system's CA bundle (for checking enterprise networks' certificates),
-    // wherever this distro keeps it; "" if none was found.
+    // wherever this distro keeps it; "" if none was found. It must be plain
+    // PEM certificates (iwd rejects anything else in the file), so the NixOS
+    // module's cleaned copy comes first.
     property string caBundle: ""
     Process {
         running: true
-        command: ["sh", "-c", "for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do [ -r \"$f\" ] && { echo \"$f\"; exit; }; done"]
+        command: ["sh", "-c", "for f in /etc/hayashi-shell/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do [ -r \"$f\" ] && { echo \"$f\"; exit; }; done"]
         stdout: StdioCollector { onStreamFinished: root.caBundle = text.trim() }
     }
 

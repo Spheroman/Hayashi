@@ -83,6 +83,20 @@ in
   config = lib.mkMerge [
     (lib.mkIf cfg.enable {
       security.pam.services.hayashi-shell = { };
+
+      # The system's trusted CAs as plain PEM certificates, for checking
+      # enterprise Wi-Fi (eduroam and the like). NixOS's bundle also holds
+      # OpenSSL "TRUSTED CERTIFICATE" blocks, and iwd (ell) rejects the whole
+      # file when it meets one, so the Wi-Fi card points NetworkManager here
+      # instead. /etc, since iwd's sandbox hides /home and /tmp.
+      environment.etc."hayashi-shell/ca-bundle.crt".source =
+        pkgs.runCommand "hayashi-shell-ca-bundle.crt" { } ''
+          ${pkgs.gawk}/bin/awk '
+            /^-----BEGIN CERTIFICATE-----$/ { keep = 1 }
+            keep { print }
+            /^-----END CERTIFICATE-----$/ { keep = 0 }
+          ' ${config.security.pki.caBundle} > $out
+        '';
     })
 
     (lib.mkIf cfg.greeter.enable {
