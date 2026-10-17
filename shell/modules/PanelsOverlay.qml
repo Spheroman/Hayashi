@@ -86,6 +86,33 @@ PanelWindow {
         anim.duration = leaving ? Tokens.cardExit : Tokens.cardReturn;
         anim.easing.bezierCurve = leaving ? Tokens.exitCurve : Tokens.returnCurve;
         anim.start();
+        if (to === 0) homeDeadline.restart();
+        else homeDeadline.stop();
+    }
+
+    // Puts the card home and gives the screen back without the animation.
+    function settleHome(): void {
+        anim.stop();
+        card.x = 0;
+        shown = false;
+        capture.active = false;
+        ShellState.introRunning = false;
+    }
+
+    // Safety net for the return slide. The animation only advances when the
+    // compositor asks for a new frame, and after a long session lock or a
+    // suspend those requests can stall. Until the card is home this overlay
+    // covers the screen and takes all input, which is a lockout right after
+    // a successful unlock. A Timer runs regardless of frames, so it lands the
+    // card if the slide hasn't finished well after it should have.
+    Timer {
+        id: homeDeadline
+        interval: Tokens.cardReturn + 400
+        onTriggered: {
+            if (ShellState.overlayOpen || !win.shown) return;
+            console.warn("overlay: return slide stalled at x =", card.x, "- settling home");
+            win.settleHome();
+        }
     }
 
     // Engage the real session lock once the card is fully off.
@@ -124,13 +151,8 @@ PanelWindow {
         property: "x"
         easing.type: Easing.BezierSpline
         onFinished: {
-            if (card.x > 0) {
-                win.lockIfAway();
-            } else {
-                win.shown = false;
-                capture.active = false;
-                ShellState.introRunning = false;
-            }
+            if (card.x > 0) win.lockIfAway();
+            else win.settleHome();
         }
     }
 
