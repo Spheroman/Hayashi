@@ -55,7 +55,11 @@ Singleton {
     }
 
     function lock(): void {
-        if (locking) return;
+        if (locking) {
+            console.info("lock: requested while already locked");
+            return;
+        }
+        console.info("lock: requested at", new Date().toISOString());
         locking = true;
         panelsOpen = false;
         launcherOpen = false;
@@ -63,9 +67,14 @@ Singleton {
     }
 
     function unlock(): void {
+        console.info("lock: unlocked at", new Date().toISOString());
         sessionLocked = false;
         locking = false;
     }
+
+    // Logged (with the time) so a lock that misbehaves can be traced in
+    // `qs log` afterwards.
+    onSessionLockedChanged: console.info("lock: session lock", sessionLocked ? "engaged" : "released", "at", new Date().toISOString())
 
     // Safety net: if the slide can't happen (no screen capture, say), lock
     // anyway. An idle or before-sleep lock must never be skipped.

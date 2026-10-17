@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
+import qs.config
 import qs.services
 import qs.modules
 import qs.modules.lock
