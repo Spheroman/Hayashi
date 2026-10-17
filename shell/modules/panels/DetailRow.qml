@@ -35,6 +35,14 @@ Rectangle {
         width: parent.width
         height: 54
 
+        // MouseAreas (not TapHandlers), so the trailing button's click
+        // doesn't also fire the row's.
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.clicked()
+        }
+
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 12
@@ -69,7 +77,7 @@ Rectangle {
                 implicitWidth: 36
                 implicitHeight: 36
                 radius: 18
-                color: trailingHover.hovered ? Theme.surfaceContainerHighest : "transparent"
+                color: trailingArea.containsMouse ? Theme.surfaceContainerHighest : "transparent"
 
                 Icon {
                     anchors.centerIn: parent
@@ -77,12 +85,15 @@ Rectangle {
                     size: 20
                     color: root.fgDim
                 }
-                HoverHandler { id: trailingHover }
-                TapHandler { onTapped: root.trailingClicked() }
+                MouseArea {
+                    id: trailingArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.trailingClicked()
+                }
             }
         }
-
-        TapHandler { onTapped: root.clicked() }
     }
 
     ColumnLayout {

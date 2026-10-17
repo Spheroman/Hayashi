@@ -44,6 +44,17 @@ Rectangle {
         width: parent.width
         height: 64
 
+        // Clicks are MouseAreas rather than TapHandlers: a MouseArea accepts
+        // the click, so the arrow and switch (on top) don't also fire this
+        // header-wide one underneath. TapHandlers don't exclude each other,
+        // which made the arrow expand and toggle at once.
+        MouseArea {
+            anchors.fill: parent
+            enabled: root.available && (!root.expanded || !root.toggleable)
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.expanded ? root.expandToggled() : root.clicked()
+        }
+
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 16
@@ -93,9 +104,11 @@ Rectangle {
                     color: root.on ? Theme.fgPrimary : Theme.outline
                     Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.BezierSpline; easing.bezierCurve: Tokens.returnCurve } }
                 }
-                TapHandler {
+                MouseArea {
+                    anchors.fill: parent
                     enabled: root.available
-                    onTapped: root.clicked()
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.clicked()
                 }
             }
 
@@ -105,21 +118,21 @@ Rectangle {
                 implicitWidth: 40
                 implicitHeight: 40
                 radius: 20
-                color: arrowHover.hovered ? (root.on && !root.expanded ? Theme.primary : Theme.surfaceContainerHighest) : "transparent"
+                color: arrowArea.containsMouse ? (root.on && !root.expanded ? Theme.primary : Theme.surfaceContainerHighest) : "transparent"
 
                 Icon {
                     anchors.centerIn: parent
                     name: root.expanded ? "expand_less" : "chevron_right"
-                    color: root.on && !root.expanded && arrowHover.hovered ? Theme.fgPrimary : root.fg
+                    color: root.on && !root.expanded && arrowArea.containsMouse ? Theme.fgPrimary : root.fg
                 }
-                HoverHandler { id: arrowHover }
-                TapHandler { onTapped: root.expandToggled() }
+                MouseArea {
+                    id: arrowArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.expandToggled()
+                }
             }
-        }
-
-        TapHandler {
-            enabled: root.available && (!root.expanded || !root.toggleable)
-            onTapped: root.expanded ? root.expandToggled() : root.clicked()
         }
     }
 
