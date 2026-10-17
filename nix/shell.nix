@@ -44,6 +44,12 @@ stdenvNoCC.mkDerivation {
     # changes the path, so an old build can outlive a restart) and the dev
     # checkout, if one is set.
     stop_all() {
+      # The greeter sets HAYASHI_SHELL_INTRO for the whole session, so every
+      # terminal inherits it. The intro belongs to the first start only, not
+      # to restarts.
+      if ${procps}/bin/pgrep -f -- '/bin/quickshell -p .*hayashi-shell' >/dev/null; then
+        unset HAYASHI_SHELL_INTRO
+      fi
       ${procps}/bin/pkill -f -- '/bin/quickshell -p /nix/store/[^ ]*-hayashi-shell-[^ ]*/share/hayashi-shell( |$)' || true
       if [ -f "$state/dev-path" ]; then
         ${procps}/bin/pkill -f -x -- ".*/bin/quickshell -p $(cat "$state/dev-path")( .*)?" || true

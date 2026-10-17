@@ -123,6 +123,10 @@ PanelWindow {
     // Any change of view while shown: update what's underneath and move the
     // card there. Opening from nothing goes through a fresh still first.
     function viewChanged(): void {
+        // Traced (like lock events) so a view that fails to open can be
+        // followed in `qs log` afterwards.
+        console.info("view:", ShellState.panelsOpen ? "panels" : ShellState.launcherOpen ? "launcher" : ShellState.locking ? "lock" : "closed",
+            "shown", shown, "capturing", capture.active, "x", Math.round(card.x));
         if (ShellState.overlayOpen) {
             updateLook();
             if (shown) slideToTarget();
@@ -151,6 +155,7 @@ PanelWindow {
         property: "x"
         easing.type: Easing.BezierSpline
         onFinished: {
+            console.info("view: slide done at x", Math.round(card.x));
             if (card.x > 0) win.lockIfAway();
             else win.settleHome();
         }
@@ -243,6 +248,7 @@ PanelWindow {
 
                     onHasContentChanged: {
                         if (!hasContent) return;
+                        console.info("view: screen captured");
                         live = false;
                         if (ShellState.overlayOpen) {
                             card.x = 0;
