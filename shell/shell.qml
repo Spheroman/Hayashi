@@ -16,6 +16,8 @@ ShellRoot {
 
     // Idle timers (dim, lock, screen off, sleep); timings are in Settings.
     readonly property bool idleReady: Idle.ready
+    // Settings load at startup (they also set apps' dark or light).
+    readonly property bool settingsReady: Settings.loaded
 
     Variants {
         model: Quickshell.screens

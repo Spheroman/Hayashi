@@ -89,7 +89,7 @@ Item {
             PowerProfiles.profile = order[(order.indexOf(profile) + 1) % order.length];
             break;
         }
-        case "theme": Theme.dark = !Theme.dark; break;
+        case "theme": Settings.dark = !Settings.dark; break;
         case "dnd": Notifications.dnd = !Notifications.dnd; break;
         }
     }
