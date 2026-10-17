@@ -27,17 +27,18 @@ Singleton {
                        enc(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s), 1);
     }
 
-
     // Each role: [lightness, chroma] in dark, then in light, at the seed hue
-    // (tertiary roles are offset from it; error has its own hue). Kept as a
-    // table so a role can be read in either theme: foot and the window
-    // borders get both (see services/Settings.qml).
+    // (tertiary roles are offset from it; error has its own hue). Surfaces keep
+    // the same order in both themes, the base darkest and raised surfaces and
+    // the wallpaper lighter; light just shifts them up. Kept as a table so a
+    // role can be read in either theme: foot and the window borders get both
+    // (see services/Settings.qml).
     readonly property var roles: ({
-        surface:                 [0.165, 0.012, 0.975, 0.008],
-        surfaceContainerLow:     [0.195, 0.014, 0.955, 0.010],
-        surfaceContainer:        [0.215, 0.015, 0.940, 0.012],
-        surfaceContainerHigh:    [0.250, 0.016, 0.920, 0.014],
-        surfaceContainerHighest: [0.290, 0.018, 0.895, 0.016],
+        surface:                 [0.165, 0.012, 0.880, 0.014],
+        surfaceContainerLow:     [0.195, 0.014, 0.905, 0.013],
+        surfaceContainer:        [0.215, 0.015, 0.922, 0.012],
+        surfaceContainerHigh:    [0.250, 0.016, 0.945, 0.011],
+        surfaceContainerHighest: [0.290, 0.018, 0.965, 0.010],
         fgSurface:               [0.920, 0.012, 0.220, 0.015],
         fgSurfaceVariant:        [0.790, 0.020, 0.420, 0.020],
         outline:                 [0.600, 0.020, 0.550, 0.020],
@@ -52,7 +53,7 @@ Singleton {
         fgTertiaryContainer:     [0.930, 0.040, 0.280, 0.060],
         error:                   [0.780, 0.120, 0.500, 0.170],
         // Solid wallpaper; it only shows in gaps inside a workspace and on empty workspaces.
-        wallpaper:               [0.340, 0.050, 0.840, 0.050],
+        wallpaper:               [0.340, 0.050, 0.985, 0.020],
     })
 
     function role(name: string, isDark: bool): color {
