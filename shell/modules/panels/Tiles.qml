@@ -72,7 +72,9 @@ Item {
             icon: profile === PowerProfile.PowerSaver ? "eco" : profile === PowerProfile.Performance ? "bolt" : "speed",
             label: "Power", detail: profileName, on: profile !== PowerProfile.Balanced,
             details: powerDetails };
-        case "theme": return { icon: "dark_mode", label: "Dark theme", detail: Theme.dark ? "On" : "Off", on: Theme.dark };
+        case "theme": return {
+            icon: Settings.dark ? "dark_mode" : "light_mode", label: "Theme", on: Settings.dark,
+            detail: Settings.dark ? "Dark" : "Light", details: themeDetails };
         case "dnd": return { icon: "do_not_disturb_on", label: "Do not disturb", detail: Notifications.dnd ? "On" : "Off", on: Notifications.dnd };
         }
         return {};
@@ -98,6 +100,7 @@ Item {
     Component { id: bluetoothDetails; BluetoothDetails {} }
     Component { id: soundDetails; SoundDetails {} }
     Component { id: powerDetails; PowerDetails {} }
+    Component { id: themeDetails; ThemeDetails {} }
 
     Column {
         id: column

@@ -10,6 +10,8 @@
 #   hayashi-shell dev off     restart it from the store copy again
 #   hayashi-shell status      print which copy is in use
 #
+# Also `hayashi-footclient`: footclient in the shell's theme colors.
+#
 # Dev mode is remembered in $XDG_STATE_HOME/hayashi-shell/dev-path, so it
 # survives restarts until `dev off`.
 { lib, stdenvNoCC, runtimeShell, quickshell, procps, socat }:
@@ -114,6 +116,23 @@ stdenvNoCC.mkDerivation {
     EOF
     substituteInPlace $out/bin/hayashi-shell --replace-fail @out@ $out
     chmod +x $out/bin/hayashi-shell
+
+    # footclient with the shell's theme colors (written by the shell to
+    # foot-overrides whenever the theme changes; foot can't reload its
+    # config, so they're passed to each new window). Use it in place of
+    # footclient, e.g. for the terminal keybind.
+    cat > $out/bin/hayashi-footclient <<'EOF'
+    #!${runtimeShell}
+    set -eu
+    overrides="''${XDG_STATE_HOME:-$HOME/.local/state}/hayashi-shell/foot-overrides"
+    if [ -r "$overrides" ]; then
+      while IFS= read -r line; do
+        [ -n "$line" ] && set -- -o "$line" "$@"
+      done < "$overrides"
+    fi
+    exec footclient "$@"
+    EOF
+    chmod +x $out/bin/hayashi-footclient
 
     runHook postInstall
   '';

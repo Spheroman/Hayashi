@@ -39,6 +39,14 @@ Singleton {
     function focusWindow(address: string): void {
         Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ window = "address:${address}" })`]);
     }
+    // Window border colors ("rrggbb") for the focused and other windows, from
+    // the shell's theme. Kept and re-applied if the compositor reloads its
+    // config, which would put its own back.
+    property var borderColors: null
+    function setBorderColors(active: string, inactive: string): void {
+        borderColors = { active, inactive };
+        applyBorders();
+    }
     function exitSession(): void {
         Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.exit()"]);
     }
@@ -126,8 +134,18 @@ Singleton {
         path: `${Quickshell.env("XDG_RUNTIME_DIR")}/hypr/${Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")}/.socket2.sock`
         connected: true
         parser: SplitParser {
-            onRead: debounce.restart()
+            onRead: line => {
+                if (line.startsWith("configreloaded>>")) root.applyBorders();
+                debounce.restart();
+            }
         }
+    }
+
+    function applyBorders(): void {
+        if (!borderColors) return;
+        const c = borderColors;
+        Quickshell.execDetached(["hyprctl", "dispatch",
+            `function() hl.config({ general = { col = { active_border = "rgba(${c.active}ff)", inactive_border = "rgba(${c.inactive}ff)" } } }) end`]);
     }
 
     Component.onCompleted: refresh()
