@@ -48,12 +48,16 @@ Singleton {
     // CAs), domain (optional: the certificate must be for this domain) }.
     // Only the password is secret; the username goes on the command line.
     function connect(ssid: string, password: string, signIn: var): void {
+        // One attempt at a time: overlapping ones (Enter and a click, say)
+        // would share the secret file and could delete it under each other.
+        if (connecting !== "") return;
         error = "";
         connecting = ssid;
         const n = networks.find(x => x.ssid === ssid);
 
         if (password === "") {
             connectProc.newProfile = "";
+            connectProc.secretPath = "";
             connectProc.enterprise = false;
             connectProc.command = n?.saved ? ["nmcli", "connection", "up", "id", ssid] : ["nmcli", "device", "wifi", "connect", ssid];
             connectProc.running = true;
@@ -85,10 +89,12 @@ Singleton {
             secret = "802-11-wireless-security.psk:" + password;
         }
 
-        secretFile.path = `${root.runtimeDir}/hayashi-shell-wifi-${Date.now()}`;
+        const secretPath = `${root.runtimeDir}/hayashi-shell-wifi-${Date.now()}`;
+        secretFile.path = secretPath;
         secretFile.setText(secret + "\n");
 
         addProc.ssid = ssid;
+        addProc.secretPath = secretPath;
         addProc.enterprise = !!signIn;
         addProc.command = add;
         addProc.running = true;
@@ -107,8 +113,8 @@ Singleton {
         stdout: StdioCollector { onStreamFinished: root.caBundle = text.trim() }
     }
 
-    function removeSecret(): void {
-        if (secretFile.path !== "") Quickshell.execDetached(["rm", "-f", secretFile.path]);
+    function removeSecret(path: string): void {
+        if (path !== "") Quickshell.execDetached(["rm", "-f", path]);
     }
 
     FileView {
@@ -123,19 +129,21 @@ Singleton {
         id: addProc
 
         property string ssid: ""
+        property string secretPath: ""
         property bool enterprise: false
 
         stderr: StdioCollector { id: addErr }
         onExited: code => {
             if (code !== 0) {
-                root.removeSecret();
+                root.removeSecret(secretPath);
                 root.error = addErr.text.trim().replace(/^Error:\s*/, "") || "Couldn't save the network.";
                 root.connecting = "";
                 return;
             }
             connectProc.newProfile = ssid;
+            connectProc.secretPath = secretPath;
             connectProc.enterprise = enterprise;
-            connectProc.command = ["nmcli", "connection", "up", "id", ssid, "passwd-file", secretFile.path];
+            connectProc.command = ["nmcli", "connection", "up", "id", ssid, "passwd-file", secretPath];
             connectProc.running = true;
         }
     }
@@ -197,11 +205,14 @@ Singleton {
 
         // Set when this attempt created the saved network (new secured network).
         property string newProfile: ""
+        // This attempt's password file, removed when nmcli is done with it.
+        property string secretPath: ""
         property bool enterprise: false
 
         stderr: StdioCollector { id: connectErr }
         onExited: (code, status) => {
-            if (newProfile !== "") root.removeSecret();
+            root.removeSecret(secretPath);
+            secretPath = "";
             if (code !== 0) {
                 const msg = connectErr.text.trim().replace(/^Error:\s*/, "");
                 console.warn("wifi: connecting to", root.connecting, "failed:", msg);

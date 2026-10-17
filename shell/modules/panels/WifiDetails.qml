@@ -164,9 +164,9 @@ ColumnLayout {
                         password.text = "";
                         root.openSsid = "";
                     }
-                    readonly property bool canConnect: enterprise
+                    readonly property bool canConnect: Wifi.connecting === "" && (enterprise
                         ? username.text.trim() !== "" && password.text !== "" && (!verify || domain.text.trim() !== "")
-                        : password.text.length >= 8
+                        : password.text.length >= 8)
 
                     ColumnLayout {
                         visible: !active && !saved && secure
