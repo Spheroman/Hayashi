@@ -70,7 +70,11 @@ Singleton {
                 "802-1x.phase2-auth", signIn.method === "ttls" ? "pap" : "mschapv2",
                 "802-1x.identity", signIn.identity);
             if (signIn.verify) {
-                add.push("802-1x.system-ca-certs", "yes");
+                // The system's CA bundle, named as a file: NetworkManager's iwd
+                // backend rejects system-ca-certs ("not supported"), but takes
+                // a CA file with either backend.
+                if (root.caBundle !== "") add.push("802-1x.ca-cert", root.caBundle);
+                else add.push("802-1x.system-ca-certs", "yes");
                 if (signIn.domain) add.push("802-1x.domain-suffix-match", signIn.domain);
             }
             secret = "802-1x.password:" + password;
@@ -91,6 +95,15 @@ Singleton {
     }
 
     readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
+
+    // The system's CA bundle (for checking enterprise networks' certificates),
+    // wherever this distro keeps it; "" if none was found.
+    property string caBundle: ""
+    Process {
+        running: true
+        command: ["sh", "-c", "for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do [ -r \"$f\" ] && { echo \"$f\"; exit; }; done"]
+        stdout: StdioCollector { onStreamFinished: root.caBundle = text.trim() }
+    }
 
     function removeSecret(): void {
         if (secretFile.path !== "") Quickshell.execDetached(["rm", "-f", secretFile.path]);
@@ -189,6 +202,7 @@ Singleton {
             if (newProfile !== "") root.removeSecret();
             if (code !== 0) {
                 const msg = connectErr.text.trim().replace(/^Error:\s*/, "");
+                console.warn("wifi: connecting to", root.connecting, "failed:", msg);
                 // nmcli can't tell a wrong password from a rejected
                 // certificate on enterprise networks: both are an 802.1X
                 // failure.

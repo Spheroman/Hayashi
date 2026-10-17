@@ -156,7 +156,7 @@ Item {
                 DetailCard {
                     id: card
                     width: column.width
-                    content: row.cardHere ? (root.info(root.expanded).details ?? null) : null
+                    content: row.cardHere && !root.restricted ? (root.info(root.expanded).details ?? null) : null
                 }
             }
         }
