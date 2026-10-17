@@ -28,7 +28,12 @@ Scope {
             bottom: true
         }
         exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Top
+        // Under the windows (above the wallpaper): the hole is flush with them,
+        // and where their edges meet, the window and its border win. On top,
+        // the frame's anti-aliased edge (and its corners, which Hyprland draws
+        // with the border outside the rounding) covered the border slightly,
+        // and it covered windows mid-animation.
+        WlrLayershell.layer: WlrLayer.Bottom
         WlrLayershell.namespace: "card-frame"
         color: "transparent"
         // Only the bar takes input; clicks anywhere else go to the windows.
