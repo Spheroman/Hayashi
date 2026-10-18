@@ -130,7 +130,7 @@ PanelWindow {
         if (ShellState.overlayOpen) {
             updateLook();
             if (shown) slideToTarget();
-            else capture.active = true;  // see onHasContentChanged
+            else { captureWatch.retries = 0; capture.active = true; }  // see onHasContentChanged
         } else if (shown) {
             slideToTarget();
         } else {
@@ -159,6 +159,58 @@ PanelWindow {
             if (card.x > 0) win.lockIfAway();
             else win.settleHome();
         }
+    }
+
+    // Screen capture (ext-image-copy-capture) only delivers a frame when the
+    // compositor next redraws, and on a still screen it doesn't: the launcher
+    // waited until something changed (often its own closing). While a capture
+    // is pending, this pixel (black at 1/255, invisible) toggles to give the
+    // compositor something to redraw.
+    Rectangle {
+        id: nudge
+        width: 1
+        height: 1
+        color: "#01000000"
+        visible: false
+    }
+    readonly property bool capturePending: capture.active && !(capture.item?.hasContent ?? false) && ShellState.overlayOpen && !shown
+    Timer {
+        interval: 40
+        repeat: true
+        running: win.capturePending
+        onTriggered: nudge.visible = !nudge.visible
+        onRunningChanged: if (!running) nudge.visible = false
+    }
+
+    // And if a capture still hasn't arrived: start a fresh one, twice, then
+    // open the view without the still (a plain card) rather than not at all.
+    Timer {
+        id: captureWatch
+
+        property int retries: 0
+
+        interval: 300
+        repeat: true
+        running: win.capturePending
+        onTriggered: {
+            if (retries < 2) {
+                retries++;
+                console.warn("view: no screen capture after", interval * retries, "ms; retrying");
+                capture.active = false;
+                capture.active = true;
+            } else {
+                console.warn("view: no screen capture; opening without it");
+                win.openView();
+            }
+        }
+    }
+
+    // Shows the view under the card at home, then slides the card away.
+    function openView(): void {
+        card.x = 0;
+        shown = true;
+        updateLook();
+        slideToTarget();
     }
 
     Item {
@@ -250,14 +302,10 @@ PanelWindow {
                         if (!hasContent) return;
                         console.info("view: screen captured");
                         live = false;
-                        if (ShellState.overlayOpen) {
-                            card.x = 0;
-                            win.shown = true;
-                            win.updateLook();
-                            win.slideToTarget();
-                        } else {
-                            capture.active = false;
-                        }
+                        // If the view already opened without the still (see
+                        // captureWatch), it just fills the card in.
+                        if (!ShellState.overlayOpen) capture.active = false;
+                        else if (!win.shown) win.openView();
                     }
                 }
             }
