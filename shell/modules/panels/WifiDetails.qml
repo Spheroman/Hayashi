@@ -71,8 +71,14 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.leftMargin: 12
         Layout.bottomMargin: 8
-        visible: !Wifi.enabled || Wifi.networks.length === 0
-        text: !Wifi.enabled ? "Wi-Fi is off." : "Looking for networks…"
+        // Off, the radio coming up, NetworkManager connecting by itself (after
+        // a wake, say; the card's own connects show on their row), or no
+        // networks found yet.
+        readonly property bool autoConnecting: Wifi.deviceState.startsWith("connecting") && Wifi.connecting === ""
+        visible: !Wifi.enabled || Wifi.networks.length === 0 || autoConnecting
+        text: !Wifi.enabled ? "Wi-Fi is off."
+            : autoConnecting || Wifi.deviceState === "unavailable" ? Wifi.status
+            : "Looking for networks…"
         font.pixelSize: 13
         color: Theme.fgSurfaceVariant
     }

@@ -24,8 +24,24 @@ Singleton {
     property string connecting: ""
     property string error: ""
 
+    // NetworkManager's own view of the Wi-Fi device: its state ("connected",
+    // "connecting (configuring)", "disconnected", "unavailable" while the
+    // radio comes up...) and the connection it's on or working on. It covers
+    // what NetworkManager does by itself, like reconnecting after a wake.
+    // Set as one object, so the two always change together.
+    property var device: ({ state: "", connection: "" })
+    readonly property string deviceState: device.state
+    readonly property string deviceConnection: device.connection
+    // One line for the tile and the card.
+    readonly property string status: !enabled ? "Off"
+        : device.state.startsWith("connecting") ? (device.connection ? `Connecting to ${device.connection}…` : "Connecting…")
+        : device.state === "connected" ? (active?.ssid ?? device.connection)
+        : device.state === "unavailable" ? "Turning on…"
+        : "Not connected"
+
     function refresh(): void {
-        if (!listProc.running) listProc.running = true;
+        if (listProc.running) listProc.again = true;
+        else listProc.running = true;
     }
 
     function setEnabled(on: bool): void {
@@ -33,6 +49,8 @@ Singleton {
         error = "";
         Quickshell.execDetached(["nmcli", "radio", "wifi", on ? "on" : "off"]);
         refreshSoon.restart();
+        // The radio takes a few seconds to come up and scan; follow it closely.
+        if (on) settle.begin();
     }
 
     // Saved and open networks connect directly. A new secured network never
@@ -173,7 +191,12 @@ Singleton {
 
     Process {
         id: listProc
-        command: ["sh", "-c", "nmcli -t -f WIFI general; echo '--saved'; nmcli -t -f NAME,TYPE connection show; echo '--scan'; nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan auto"]
+
+        // A refresh was asked for while this one ran; run again after.
+        property bool again: false
+        onExited: if (again) { again = false; running = true; }
+
+        command: ["sh", "-c", "nmcli -t -f WIFI general; echo '--device'; nmcli -t -f TYPE,STATE,CONNECTION device; echo '--saved'; nmcli -t -f NAME,TYPE connection show; echo '--scan'; nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan auto"]
         stdout: StdioCollector {
             onStreamFinished: {
                 const lines = text.split("\n");
@@ -182,10 +205,14 @@ Singleton {
                 const bySsid = {};
                 let section = "";
                 for (const line of lines.slice(1)) {
-                    if (line === "--saved" || line === "--scan") { section = line; continue; }
+                    if (line === "--device" || line === "--saved" || line === "--scan") { section = line; continue; }
                     if (line.trim() === "") continue;
                     const f = root.splitTerse(line);
-                    if (section === "--saved") {
+                    if (section === "--device") {
+                        // "--" is nmcli for no connection.
+                        if (f[0] === "wifi")
+                            root.device = { state: f[1] ?? "", connection: f[2] === "--" ? "" : (f[2] ?? "") };
+                    } else if (section === "--saved") {
                         if (f[1] === "802-11-wireless") saved.add(f[0]);
                     } else if (section === "--scan" && f.length >= 4 && f[1] !== "") {
                         const n = { ssid: f[1], signal: +f[2] || 0, security: f[3], secure: f[3] !== "" && f[3] !== "--", enterprise: /802\.1X/.test(f[3]), active: f[0] === "*" };
@@ -243,6 +270,44 @@ Singleton {
         repeat: true
         running: root.watching && !root.paused
         onTriggered: root.refresh()
+    }
+
+    // NetworkManager's change events (radio, device state, connections):
+    // each one refreshes, a moment later so a burst of them refreshes once.
+    // Restarted if it ever exits (NetworkManager restarting, say).
+    Process {
+        id: monitor
+        running: true
+        command: ["nmcli", "monitor"]
+        stdout: SplitParser { onRead: monitorDebounce.restart() }
+        onExited: monitorRestart.start()
+    }
+    Timer {
+        id: monitorDebounce
+        interval: 300
+        onTriggered: root.refresh()
+    }
+    Timer {
+        id: monitorRestart
+        interval: 5000
+        onTriggered: monitor.running = true
+    }
+
+    // After the radio is switched on: refresh every 2 s for 20 s, so new
+    // scan results show up as the radio finds them (nmcli monitor reports
+    // state changes, not scan results).
+    Timer {
+        id: settle
+
+        property int ticks: 0
+        function begin(): void { ticks = 0; restart(); }
+
+        interval: 2000
+        repeat: true
+        onTriggered: {
+            root.refresh();
+            if (++ticks >= 10) stop();
+        }
     }
 
     Component.onCompleted: refresh()

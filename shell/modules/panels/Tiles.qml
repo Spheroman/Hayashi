@@ -51,7 +51,7 @@ Item {
         switch (id) {
         case "wifi": return {
             icon: Wifi.enabled ? "wifi" : "wifi_off", label: "Wi-Fi", on: Wifi.enabled,
-            detail: !Wifi.enabled ? "Off" : Wifi.active ? Wifi.active.ssid : "Not connected",
+            detail: Wifi.status,
             details: wifiDetails };
         case "bluetooth": {
             const connected = Bluetooth.devices.values.filter(d => d.connected);
