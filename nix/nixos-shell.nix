@@ -65,8 +65,10 @@ in
     backpackMode = {
       enable = lib.mkEnableOption ''
         backpack mode, a switch on the Power card for leaving the laptop
-        working in a bag: it never sleeps (not even with the lid closed) and
-        runs slow and cool. It's a system service, hayashi-shell-backpack,
+        working in a bag: it never sleeps (not even with the lid closed), and
+        while the lid is closed it runs slow and cool with the fans in their
+        quietest mode. With the lid open it runs as normal. It's a system
+        service, hayashi-shell-backpack,
         that local users at the machine may start and stop. It turns itself
         off when the battery runs low, so the laptop sleeps instead of dying
       '';
@@ -74,7 +76,7 @@ in
       maxFrequency = lib.mkOption {
         type = lib.types.ints.positive;
         default = 1200;
-        description = "The CPU's top speed while backpack mode is on, in MHz.";
+        description = "The CPU's top speed in backpack mode with the lid closed, in MHz.";
       };
 
       lowBattery = lib.mkOption {
@@ -139,62 +141,107 @@ in
       ];
     })
 
-    (lib.mkIf cfg.backpackMode.enable {
+    (lib.mkIf cfg.backpackMode.enable (let
+      # The service's script. `watch` is its main process; `restore` undoes
+      # the lid-closed settings however the service ends.
+      backpack = pkgs.writeShellScript "hayashi-backpack" ''
+        state=/run/hayashi-shell-backpack.state
+        fan=$(echo /sys/bus/platform/devices/VPC*/fan_mode)
+
+        # Lid closed: power saver, the CPU and GPU capped, the fans in their
+        # quietest mode. What they were goes in $state, to put back.
+        quiet() {
+          {
+            command -v powerprofilesctl >/dev/null && echo "profile=$(powerprofilesctl get)"
+            [ -w "$fan" ] && echo "fan=$(cat $fan)"
+          } > $state
+          command -v powerprofilesctl >/dev/null && powerprofilesctl set power-saver
+          for p in /sys/devices/system/cpu/cpufreq/policy*; do
+            echo ${toString (cfg.backpackMode.maxFrequency * 1000)} > $p/scaling_max_freq
+          done
+          for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
+            [ -e "$g" ] && echo low > "$g"
+          done
+          # Lenovo IdeaPad/Yoga (ideapad_laptop): 0 is "super silent". The
+          # embedded controller still runs the fans if it gets hot enough.
+          [ -w "$fan" ] && echo 0 > $fan
+          echo "lid closed: quiet"
+        }
+
+        restore() {
+          [ -e $state ] || return 0
+          for p in /sys/devices/system/cpu/cpufreq/policy*; do
+            cat $p/cpuinfo_max_freq > $p/scaling_max_freq
+          done
+          for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
+            [ -e "$g" ] && echo auto > "$g"
+          done
+          while IFS='=' read -r k v; do
+            case $k in
+              profile) powerprofilesctl set "$v" ;;
+              fan) echo "$v" > $fan ;;
+            esac
+          done < $state
+          rm -f $state
+          echo "back to normal"
+        }
+
+        lidClosed() { grep -q closed /proc/acpi/button/lid/*/state 2>/dev/null; }
+
+        lowBattery() {
+          for b in /sys/class/power_supply/BAT*; do
+            [ -e "$b/capacity" ] || continue
+            [ "$(cat $b/status)" = Discharging ] && [ "$(cat $b/capacity)" -le ${toString cfg.backpackMode.lowBattery} ] && return 0
+          done
+          return 1
+        }
+
+        case "$1" in
+          restore) restore ;;
+          watch)
+            # Follows the lid every 2 s; checks the battery every minute
+            # and ends backpack mode when it's low, so the laptop can sleep
+            # (logind's lid handling takes over again).
+            restore
+            trap 'restore; exit 0' TERM INT
+            n=0
+            while :; do
+              if lidClosed; then [ -e $state ] || quiet
+              else [ -e $state ] && restore
+              fi
+              if [ $((n % 30)) -eq 0 ] && lowBattery; then
+                echo "battery low, ending backpack mode"
+                restore
+                exit 0
+              fi
+              n=$((n + 1))
+              sleep 2 & wait $!
+            done
+            ;;
+        esac
+      '';
+    in {
       # Started and stopped by the Power card. While it runs it holds a
-      # logind inhibitor against sleep and lid-close handling (as root, so
-      # no session needs that right) and caps the CPU and GPU. Its main
-      # process watches the battery. The caps come off however it stops.
+      # logind inhibitor against sleep and the lid, suspend and power keys
+      # (as root, so no session needs that right). With the lid open the
+      # laptop runs as normal; with it closed, it's throttled and the fans
+      # kept quiet.
       systemd.services.hayashi-shell-backpack = {
-        description = "Hayashi shell backpack mode: no sleep, low power";
-        path = [ pkgs.coreutils ]
+        description = "Hayashi shell backpack mode: no sleep; quiet with the lid closed";
+        path = [ pkgs.coreutils pkgs.gnugrep ]
           ++ lib.optional config.services.power-profiles-daemon.enable config.services.power-profiles-daemon.package;
         serviceConfig = {
           Type = "simple";
-          ExecStartPre = pkgs.writeShellScript "hayashi-backpack-start" ''
-            # Power saver, remembering the profile to go back to.
-            if command -v powerprofilesctl >/dev/null; then
-              powerprofilesctl get > /run/hayashi-shell-backpack.profile || true
-              powerprofilesctl set power-saver || true
-            fi
-            for p in /sys/devices/system/cpu/cpufreq/policy*; do
-              echo ${toString (cfg.backpackMode.maxFrequency * 1000)} > $p/scaling_max_freq || true
-            done
-            for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
-              [ -e "$g" ] && { echo low > "$g" || true; }
-            done
-          '';
           ExecStart = lib.escapeShellArgs [
             "${pkgs.systemd}/bin/systemd-inhibit"
             "--what=sleep:handle-lid-switch:handle-suspend-key:handle-power-key"
             "--mode=block"
             "--who=Backpack mode"
             "--why=Keeping the laptop working in a bag"
-            (pkgs.writeShellScript "hayashi-backpack-watch" ''
-              # Ends backpack mode when the battery runs low, so the laptop
-              # can sleep (logind's lid handling takes over again).
-              while sleep 60; do
-                for b in /sys/class/power_supply/BAT*; do
-                  [ -e "$b/capacity" ] || continue
-                  if [ "$(cat $b/status)" = Discharging ] && [ "$(cat $b/capacity)" -le ${toString cfg.backpackMode.lowBattery} ]; then
-                    echo "battery at $(cat $b/capacity)%, ending backpack mode"
-                    exit 0
-                  fi
-                done
-              done
-            '')
+            backpack
+            "watch"
           ];
-          ExecStopPost = pkgs.writeShellScript "hayashi-backpack-stop" ''
-            for p in /sys/devices/system/cpu/cpufreq/policy*; do
-              cat $p/cpuinfo_max_freq > $p/scaling_max_freq || true
-            done
-            for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
-              [ -e "$g" ] && { echo auto > "$g" || true; }
-            done
-            if [ -s /run/hayashi-shell-backpack.profile ] && command -v powerprofilesctl >/dev/null; then
-              powerprofilesctl set "$(cat /run/hayashi-shell-backpack.profile)" || true
-            fi
-            rm -f /run/hayashi-shell-backpack.profile
-          '';
+          ExecStopPost = "${backpack} restore";
         };
       };
 
@@ -210,7 +257,7 @@ in
           }
         });
       '';
-    })
+    }))
 
     (lib.mkIf cfg.bootSplash.enable {
       boot.plymouth = {

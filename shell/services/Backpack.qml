@@ -6,7 +6,8 @@ import QtQuick
 
 // Backpack mode: the laptop keeps working in a bag. The NixOS module's
 // hayashi-shell-backpack service does the system side (no sleep, even with
-// the lid closed; CPU and GPU capped; off again when the battery runs low).
+// the lid closed; with it closed, CPU and GPU capped and the fans quiet;
+// off again when the battery runs low).
 // The shell adds what a closed lid would otherwise have done: it locks, and
 // turns the screen off once locked.
 Singleton {
