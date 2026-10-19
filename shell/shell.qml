@@ -79,7 +79,7 @@ ShellRoot {
         }
     }
 
-    // Fast path for keybinds: `hayashi-shell msg panels|launcher|lock|close`
+    // Fast path for keybinds: `hayashi-shell msg panels|launcher|lock|close|back`
     // writes one word to this socket, which takes a few milliseconds.
     // (`qs ipc` below starts a whole Quickshell process per call, ~45 ms.)
     SocketServer {
@@ -94,6 +94,7 @@ ShellRoot {
                     case "launcher": ShellState.toggleLauncher(); break;
                     case "lock": ShellState.lock(); break;
                     case "close": ShellState.closeOverlay(); break;
+                    case "back": ShellState.back(); break;
                     default: console.warn("hayashi-shell: unknown message", data);
                     }
                 }
@@ -108,6 +109,7 @@ ShellRoot {
         function toggle(): void { ShellState.togglePanels(); }
         function open(): void { ShellState.openPanels(); }
         function close(): void { ShellState.closeOverlay(); }
+        function back(): void { ShellState.back(); }
     }
 
     // `hayashi-shell ipc call launcher toggle`, bound to Super+Space.

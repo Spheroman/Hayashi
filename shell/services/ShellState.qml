@@ -64,6 +64,16 @@ Singleton {
         launcherOpen = false;
     }
 
+    // Super+Tab: with the panels or the launcher open, back to the desktop
+    // (the instinctive "go back to where I was"); otherwise back to the
+    // previous workspace. Switching workspaces under an open view would
+    // leave the card showing a stale still. Does nothing while locked.
+    function back(): void {
+        if (locking) return;
+        if (panelsOpen || launcherOpen) closeOverlay();
+        else Compositor.focusPreviousWorkspace();
+    }
+
     function lock(): void {
         if (locking) {
             console.info("lock: requested while already locked");

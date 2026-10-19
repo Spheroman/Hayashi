@@ -39,6 +39,10 @@ Singleton {
     function focusWindow(address: string): void {
         Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ window = "address:${address}" })`]);
     }
+    // Back to the workspace that was active before this one.
+    function focusPreviousWorkspace(): void {
+        Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ workspace = "previous" })`]);
+    }
     // Window border colors ("rrggbb") for the focused and other windows, from
     // the shell's theme. Kept and re-applied if the compositor reloads its
     // config, which would put its own back.

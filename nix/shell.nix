@@ -4,7 +4,7 @@
 #   hayashi-shell             start the shell (the store copy) in the background,
 #                             replacing any copy already running, from any build
 #   hayashi-shell -f          the same, but attached to the terminal (debugging)
-#   hayashi-shell msg WORD    fast keybind message: panels, launcher, lock or close
+#   hayashi-shell msg WORD    fast keybind message: panels, launcher, lock, close or back
 #   hayashi-shell ipc ...     talk to the running shell, e.g. `ipc call panels toggle`
 #   hayashi-shell dev PATH    restart it from a working copy, for live editing
 #   hayashi-shell dev off     restart it from the store copy again
@@ -74,7 +74,8 @@ stdenvNoCC.mkDerivation {
           panels|launcher) exec "$qs" ipc -p "$(config)" call "$word" toggle ;;
           lock) exec "$qs" ipc -p "$(config)" call lock lock ;;
           close) exec "$qs" ipc -p "$(config)" call panels close ;;
-          *) echo "usage: hayashi-shell msg panels|launcher|lock|close" >&2; exit 2 ;;
+          back) exec "$qs" ipc -p "$(config)" call panels back ;;
+          *) echo "usage: hayashi-shell msg panels|launcher|lock|close|back" >&2; exit 2 ;;
         esac
         ;;
       ipc)
