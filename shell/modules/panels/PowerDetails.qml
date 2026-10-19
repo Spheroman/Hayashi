@@ -145,7 +145,7 @@ ColumnLayout {
         selected: Backpack.active
         title: "Backpack mode"
         subtitle: Backpack.switching ? (Backpack.active ? "Turning on…" : "Turning off…")
-            : Backpack.active ? "On: never sleeps; lid closed: locked, slow, quiet"
+            : Backpack.active ? "On: never sleeps; closed lid locks, slow on battery"
             : "Keep working with the lid closed, in a bag"
         onClicked: if (!Backpack.switching) Backpack.setActive(!Backpack.active)
     }

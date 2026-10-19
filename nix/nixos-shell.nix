@@ -66,8 +66,9 @@ in
       enable = lib.mkEnableOption ''
         backpack mode, a switch on the Power card for leaving the laptop
         working in a bag: it never sleeps (not even with the lid closed), and
-        while the lid is closed it runs slow and cool with the fans in their
-        quietest mode. With the lid open it runs as normal. It's a system
+        while the lid is closed on battery it runs slow and cool with the fans
+        in their quietest mode. With the lid open, or on AC, it runs as
+        normal. It's a system
         service, hayashi-shell-backpack,
         that local users at the machine may start and stop. It turns itself
         off when the battery runs low, so the laptop sleeps instead of dying
@@ -148,7 +149,7 @@ in
         state=/run/hayashi-shell-backpack.state
         fan=$(echo /sys/bus/platform/devices/VPC*/fan_mode)
 
-        # Lid closed: power saver, the CPU and GPU capped, the fans in their
+        # Lid closed on battery: power saver, the CPU and GPU capped, the fans in their
         # quietest mode. What they were goes in $state, to put back.
         quiet() {
           {
@@ -165,7 +166,7 @@ in
           # Lenovo IdeaPad/Yoga (ideapad_laptop): 0 is "super silent". The
           # embedded controller still runs the fans if it gets hot enough.
           [ -w "$fan" ] && echo 0 > $fan
-          echo "lid closed: quiet"
+          echo "lid closed on battery: quiet"
         }
 
         restore() {
@@ -192,6 +193,15 @@ in
 
         lidClosed() { grep -q closed /proc/acpi/button/lid/*/state 2>/dev/null; }
 
+        # On AC (any mains supply online), there's no battery to save: the
+        # lid closed then only means no sleep, with full speed and normal fans.
+        onAC() {
+          for s in /sys/class/power_supply/*; do
+            [ "$(cat $s/type 2>/dev/null)" = Mains ] && [ "$(cat $s/online 2>/dev/null)" = 1 ] && return 0
+          done
+          return 1
+        }
+
         lowBattery() {
           for b in /sys/class/power_supply/BAT*; do
             [ -e "$b/capacity" ] || continue
@@ -203,14 +213,15 @@ in
         case "$1" in
           restore) restore ;;
           watch)
-            # Follows the lid every 2 s; checks the battery every minute
+            # Follows the lid and the charger every 2 s (quiet only with the
+            # lid closed on battery); checks the battery every minute
             # and ends backpack mode when it's low, so the laptop can sleep
             # (logind's lid handling takes over again).
             restore
             trap 'restore; exit 0' TERM INT
             n=0
             while :; do
-              if lidClosed; then [ -e $state ] || quiet
+              if lidClosed && ! onAC; then [ -e $state ] || quiet
               else [ -e $state ] && restore
               fi
               if [ $((n % 30)) -eq 0 ] && lowBattery; then
@@ -228,7 +239,7 @@ in
       # Started and stopped by the Power card. While it runs it holds a
       # logind inhibitor against sleep and the lid, suspend and power keys
       # (as root, so no session needs that right). With the lid open the
-      # laptop runs as normal; with it closed, it's throttled and the fans
+      # laptop runs as normal; with it closed on battery, it's throttled and the fans
       # kept quiet.
       systemd.services.hayashi-shell-backpack = {
         description = "Hayashi shell backpack mode: no sleep; quiet with the lid closed";
