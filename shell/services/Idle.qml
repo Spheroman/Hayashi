@@ -30,10 +30,7 @@ Singleton {
     IdleMonitor {
         enabled: Settings.screenOffAfter > 0
         timeout: Math.max(1, Settings.screenOffAfter)
-        onIsIdleChanged: {
-            Quickshell.execDetached(["wlopm", isIdle ? "--off" : "--on", "*"]);
-            if (!isIdle) ShellState.screensWoke();
-        }
+        onIsIdleChanged: Quickshell.execDetached(["wlopm", isIdle ? "--off" : "--on", "*"])
     }
 
     IdleMonitor {

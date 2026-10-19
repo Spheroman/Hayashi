@@ -31,11 +31,8 @@ Singleton {
         if (!on) screens(true);
     }
 
-    // Screens off and on (wlr-output-power-management). Coming back on, the
-    // lock surface is told to redraw (ShellState.screensWoke).
     function screens(on: bool): void {
         Quickshell.execDetached(["wlopm", on ? "--on" : "--off", "*"]);
-        if (on) ShellState.screensWoke();
     }
 
     // The service's state, and while it's on the lid's.

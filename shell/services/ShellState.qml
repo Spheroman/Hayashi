@@ -22,12 +22,6 @@ Singleton {
     // password field. Cleared whenever the lock starts or ends.
     property bool lockPanels: false
 
-    // The screens just came back on (idle screen-off ending, the lid opening
-    // in backpack mode). The lock surface redraws on it: a still surface
-    // otherwise sends no new frame, and Hyprland may take that for a dead
-    // lock screen.
-    signal screensWoke
-
     // Login intro: the greeter starts the session with HAYASHI_SHELL_INTRO=1,
     // and the shell opens on the bare base and slides the card in. Until it
     // finishes, everything (wallpaper included) is drawn in the base color,
