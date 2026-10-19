@@ -27,6 +27,38 @@ Rectangle {
             if (ShellState.lockPanels) panels.forceActiveFocus();
             else root.focusField();
         }
+        function onScreensWoke(): void { redraw.begin(); }
+    }
+
+    // After the screens come back on, Hyprland waits for the lock surface's
+    // next frame, and a still lock screen sends none: after a second it
+    // showed its "lock screen died" error instead (2026-10-18, lid opening
+    // in backpack mode). So for a few seconds this pixel (black at 1/255,
+    // invisible) toggles, which makes the surface draw new frames while the
+    // output comes back up (its modeset takes ~2 s).
+    Rectangle {
+        id: nudge
+        width: 1
+        height: 1
+        z: 1
+        color: "#01000000"
+        visible: false
+    }
+    Timer {
+        id: redraw
+
+        property int ticks: 0
+        function begin(): void { ticks = 0; restart(); }
+
+        interval: 50
+        repeat: true
+        onTriggered: {
+            nudge.visible = !nudge.visible;
+            if (++ticks >= 100) {
+                stop();
+                nudge.visible = false;
+            }
+        }
     }
 
     Bar {
