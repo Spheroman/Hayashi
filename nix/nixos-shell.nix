@@ -170,8 +170,12 @@ in
 
         restore() {
           [ -e $state ] || return 0
+          # No limit (the kernel's own default for the request), not
+          # cpuinfo_max_freq: that's the top speed at this moment, 2.0 GHz
+          # with boost off in power saver, and it stayed the limit after
+          # switching to a profile with boost (2026-10-18).
           for p in /sys/devices/system/cpu/cpufreq/policy*; do
-            cat $p/cpuinfo_max_freq > $p/scaling_max_freq
+            echo 2147483647 > $p/scaling_max_freq
           done
           for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
             [ -e "$g" ] && echo auto > "$g"
