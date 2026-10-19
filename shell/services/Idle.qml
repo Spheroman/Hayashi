@@ -8,7 +8,7 @@ import QtQuick
 // inhibit idle (video playback, say) hold them off.
 //   dim:        brightness to 10%, restored on activity
 //   lock:       the shell's lock screen
-//   screen off: outputs powered down (wlr-output-power-management, via wlopm)
+//   screen off: outputs powered down (Compositor.setScreensOn)
 //   suspend:    systemctl suspend
 Singleton {
     id: root
@@ -30,7 +30,7 @@ Singleton {
     IdleMonitor {
         enabled: Settings.screenOffAfter > 0
         timeout: Math.max(1, Settings.screenOffAfter)
-        onIsIdleChanged: Quickshell.execDetached(["wlopm", isIdle ? "--off" : "--on", "*"])
+        onIsIdleChanged: Compositor.setScreensOn(!isIdle)
     }
 
     IdleMonitor {

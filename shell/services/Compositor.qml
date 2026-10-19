@@ -39,6 +39,14 @@ Singleton {
     function focusWindow(address: string): void {
         Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ window = "address:${address}" })`]);
     }
+    // Screens off or on. Through Hyprland's own dpms rather than
+    // wlr-output-power-management (wlopm): on 2026-10-18 powering the screen
+    // off that way under the session lock and back on left Hyprland stuck on
+    // its "lock screen died" error, with even new lock clients not drawn,
+    // while its own dpms came back to a working lock screen.
+    function setScreensOn(on: bool): void {
+        Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.dpms({ action = "${on ? "on" : "off"}" })`]);
+    }
     // Back to the workspace that was active before this one.
     function focusPreviousWorkspace(): void {
         Quickshell.execDetached(["hyprctl", "dispatch", `hl.dsp.focus({ workspace = "previous" })`]);

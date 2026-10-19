@@ -32,7 +32,7 @@ Singleton {
     }
 
     function screens(on: bool): void {
-        Quickshell.execDetached(["wlopm", on ? "--on" : "--off", "*"]);
+        Compositor.setScreensOn(on);
     }
 
     // The service's state, and while it's on the lid's.

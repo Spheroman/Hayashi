@@ -24,7 +24,6 @@ in
     home.packages = with pkgs; [
       cfg.package
       quickshell
-      wlopm  # screen off when idle (wlr-output-power-management)
       dconf  # tells apps dark or light (the Dark theme tile)
       material-symbols
       nerd-fonts.space-mono
