@@ -90,11 +90,14 @@ PanelWindow {
     function slideToTarget(): void {
         const to = targetX();
         const leaving = to > card.x;
+        // The card leaves on the exit curve, except into the launcher, which
+        // opens on the return curve (eases out, like it closes).
+        const exit = leaving && !ShellState.launcherOpen;
         anim.stop();
         anim.from = card.x;
         anim.to = to;
-        anim.duration = leaving ? Tokens.cardExit : Tokens.cardReturn;
-        anim.easing.bezierCurve = leaving ? Tokens.exitCurve : Tokens.returnCurve;
+        anim.duration = exit ? Tokens.cardExit : Tokens.cardReturn;
+        anim.easing.bezierCurve = exit ? Tokens.exitCurve : Tokens.returnCurve;
         anim.start();
         if (to === 0) homeDeadline.restart();
         else homeDeadline.stop();

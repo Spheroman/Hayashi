@@ -37,14 +37,15 @@ Singleton {
     }
 
     // Runs the notification's default action if it has one, otherwise just
-    // dismisses it.
+    // hides the popup: a tap never deletes it (only the × does), so tapping
+    // one away to read later leaves it in the list.
     function activate(n): void {
         let action = null;
         for (let i = 0; i < n.actions.length; i++) {
             if (n.actions[i].identifier === "default") action = n.actions[i];
         }
         if (action) action.invoke();
-        else n.dismiss();
+        else hidePopup(n);
     }
 
     NotificationServer {
