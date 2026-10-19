@@ -66,7 +66,7 @@ PanelWindow {
     readonly property real fullX: card.width + Tokens.border
 
     function targetX(): real {
-        if (!ShellState.overlayOpen) return 0;
+        if (!ShellState.isOverlayOpen()) return 0;
         return ShellState.launcherOpen ? Tokens.launcherWidth : fullX;
     }
 
@@ -75,6 +75,16 @@ PanelWindow {
         else if (ShellState.launcherOpen) look = "launcher";
         else if (ShellState.panelsOpen) look = "panels";
         if (look === "launcher") launcher.open();
+    }
+
+    // updateLook, logging rather than throwing: a failure there mustn't stop the
+    // view from opening.
+    function prepareLook(): void {
+        try {
+            updateLook();
+        } catch (e) {
+            console.warn("view: preparing", look, "failed:", e);
+        }
     }
 
     function slideToTarget(): void {
@@ -109,7 +119,7 @@ PanelWindow {
         id: homeDeadline
         interval: Tokens.cardReturn + 400
         onTriggered: {
-            if (ShellState.overlayOpen || !win.shown) return;
+            if (ShellState.isOverlayOpen() || !win.shown) return;
             console.warn("overlay: return slide stalled at x =", card.x, "- settling home");
             win.settleHome();
         }
@@ -127,10 +137,11 @@ PanelWindow {
         // followed in `qs log` afterwards.
         console.info("view:", ShellState.panelsOpen ? "panels" : ShellState.launcherOpen ? "launcher" : ShellState.locking ? "lock" : "closed",
             "shown", shown, "capturing", capture.active, "x", Math.round(card.x));
-        if (ShellState.overlayOpen) {
-            updateLook();
+        if (ShellState.isOverlayOpen()) {
+            // The capture first, so nothing in preparing the view can stop it.
+            if (!shown) startCapture();  // see onHasContentChanged
+            prepareLook();
             if (shown) slideToTarget();
-            else { captureWatch.retries = 0; capture.active = true; }  // see onHasContentChanged
         } else if (shown) {
             slideToTarget();
         } else {
@@ -173,13 +184,36 @@ PanelWindow {
         color: "#01000000"
         visible: false
     }
-    readonly property bool capturePending: capture.active && !(capture.item?.hasContent ?? false) && ShellState.overlayOpen && !shown
+    // Whether a view is waiting on its still.
+    function capturePending(): bool {
+        return ShellState.isOverlayOpen() && !shown && !(capture.item?.hasContent ?? false);
+    }
+
+    // Starts a fresh capture (never reusing one) and the timers that watch
+    // it. They're started here rather than bound, so they run however the
+    // capture's state got there; a shell once sat after a long lock with
+    // views that never captured and a bound watchdog that never fired.
+    function startCapture(): void {
+        capture.active = false;
+        capture.active = true;
+        console.info("view: capture started:", capture.item ? "ok" : "no item");
+        captureWatch.retries = 0;
+        captureWatch.restart();
+        nudger.restart();
+    }
+
     Timer {
+        id: nudger
         interval: 40
         repeat: true
-        running: win.capturePending
-        onTriggered: nudge.visible = !nudge.visible
-        onRunningChanged: if (!running) nudge.visible = false
+        onTriggered: {
+            if (!win.capturePending()) {
+                stop();
+                nudge.visible = false;
+            } else {
+                nudge.visible = !nudge.visible;
+            }
+        }
     }
 
     // And if a capture still hasn't arrived: start a fresh one, twice, then
@@ -191,15 +225,20 @@ PanelWindow {
 
         interval: 300
         repeat: true
-        running: win.capturePending
         onTriggered: {
+            if (!win.capturePending()) {
+                stop();
+                return;
+            }
+            console.warn("view: no screen capture after", interval * (retries + 1), "ms",
+                "(active", capture.active, "item", !!capture.item, "hasContent", capture.item?.hasContent, ")");
             if (retries < 2) {
                 retries++;
-                console.warn("view: no screen capture after", interval * retries, "ms; retrying");
                 capture.active = false;
                 capture.active = true;
             } else {
-                console.warn("view: no screen capture; opening without it");
+                stop();
+                console.warn("view: opening without the still");
                 win.openView();
             }
         }
@@ -209,7 +248,7 @@ PanelWindow {
     function openView(): void {
         card.x = 0;
         shown = true;
-        updateLook();
+        prepareLook();
         slideToTarget();
     }
 
@@ -304,7 +343,7 @@ PanelWindow {
                         live = false;
                         // If the view already opened without the still (see
                         // captureWatch), it just fills the card in.
-                        if (!ShellState.overlayOpen) capture.active = false;
+                        if (!ShellState.isOverlayOpen()) capture.active = false;
                         else if (!win.shown) win.openView();
                     }
                 }

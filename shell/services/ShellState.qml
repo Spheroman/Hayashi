@@ -30,6 +30,12 @@ Singleton {
 
     // Whether the card should be away for any reason.
     readonly property bool overlayOpen: panelsOpen || launcherOpen || locking
+    // The same, computed now. Code reacting to a change of panelsOpen,
+    // launcherOpen or locking must use this: overlayOpen's binding is just
+    // another listener of those signals and may not have updated yet (Qt
+    // reconnects a binding when it re-evaluates, so the order drifts). A stale
+    // read left the launcher unable to open.
+    function isOverlayOpen(): bool { return panelsOpen || launcherOpen || locking; }
 
     // When switching between views, the new one opens before the old one
     // closes, so overlayOpen never dips and the card moves straight across.
