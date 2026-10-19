@@ -34,7 +34,8 @@ Singleton {
     }
 
     IdleMonitor {
-        enabled: Settings.suspendAfter > 0
+        // Backpack mode means never sleep.
+        enabled: Settings.suspendAfter > 0 && !Backpack.active
         timeout: Math.max(1, Settings.suspendAfter)
         onIsIdleChanged: if (isIdle) Quickshell.execDetached(["systemctl", "suspend"])
     }

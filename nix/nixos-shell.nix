@@ -1,6 +1,7 @@
 # NixOS module for the system side of the shell:
 #   - the PAM service its lock screen authenticates against
 #   - optionally, the greeter, as greetd's login screen
+#   - optionally, backpack mode (the Power card's "never sleep, run cool")
 self:
 { config, lib, pkgs, ... }:
 
@@ -61,6 +62,28 @@ in
       };
     };
 
+    backpackMode = {
+      enable = lib.mkEnableOption ''
+        backpack mode, a switch on the Power card for leaving the laptop
+        working in a bag: it never sleeps (not even with the lid closed) and
+        runs slow and cool. It's a system service, hayashi-shell-backpack,
+        that local users at the machine may start and stop. It turns itself
+        off when the battery runs low, so the laptop sleeps instead of dying
+      '';
+
+      maxFrequency = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 1200;
+        description = "The CPU's top speed while backpack mode is on, in MHz.";
+      };
+
+      lowBattery = lib.mkOption {
+        type = lib.types.ints.between 0 100;
+        default = 10;
+        description = "Backpack mode turns itself off at this battery percentage (when not charging).";
+      };
+    };
+
     bootSplash = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -114,6 +137,79 @@ in
         nerd-fonts.space-mono
         (google-fonts.override { fonts = [ "SpaceGrotesk" ]; })
       ];
+    })
+
+    (lib.mkIf cfg.backpackMode.enable {
+      # Started and stopped by the Power card. While it runs it holds a
+      # logind inhibitor against sleep and lid-close handling (as root, so
+      # no session needs that right) and caps the CPU and GPU. Its main
+      # process watches the battery. The caps come off however it stops.
+      systemd.services.hayashi-shell-backpack = {
+        description = "Hayashi shell backpack mode: no sleep, low power";
+        path = [ pkgs.coreutils ]
+          ++ lib.optional config.services.power-profiles-daemon.enable config.services.power-profiles-daemon.package;
+        serviceConfig = {
+          Type = "simple";
+          ExecStartPre = pkgs.writeShellScript "hayashi-backpack-start" ''
+            # Power saver, remembering the profile to go back to.
+            if command -v powerprofilesctl >/dev/null; then
+              powerprofilesctl get > /run/hayashi-shell-backpack.profile || true
+              powerprofilesctl set power-saver || true
+            fi
+            for p in /sys/devices/system/cpu/cpufreq/policy*; do
+              echo ${toString (cfg.backpackMode.maxFrequency * 1000)} > $p/scaling_max_freq || true
+            done
+            for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
+              [ -e "$g" ] && { echo low > "$g" || true; }
+            done
+          '';
+          ExecStart = lib.escapeShellArgs [
+            "${pkgs.systemd}/bin/systemd-inhibit"
+            "--what=sleep:handle-lid-switch:handle-suspend-key:handle-power-key"
+            "--mode=block"
+            "--who=Backpack mode"
+            "--why=Keeping the laptop working in a bag"
+            (pkgs.writeShellScript "hayashi-backpack-watch" ''
+              # Ends backpack mode when the battery runs low, so the laptop
+              # can sleep (logind's lid handling takes over again).
+              while sleep 60; do
+                for b in /sys/class/power_supply/BAT*; do
+                  [ -e "$b/capacity" ] || continue
+                  if [ "$(cat $b/status)" = Discharging ] && [ "$(cat $b/capacity)" -le ${toString cfg.backpackMode.lowBattery} ]; then
+                    echo "battery at $(cat $b/capacity)%, ending backpack mode"
+                    exit 0
+                  fi
+                done
+              done
+            '')
+          ];
+          ExecStopPost = pkgs.writeShellScript "hayashi-backpack-stop" ''
+            for p in /sys/devices/system/cpu/cpufreq/policy*; do
+              cat $p/cpuinfo_max_freq > $p/scaling_max_freq || true
+            done
+            for g in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
+              [ -e "$g" ] && { echo auto > "$g" || true; }
+            done
+            if [ -s /run/hayashi-shell-backpack.profile ] && command -v powerprofilesctl >/dev/null; then
+              powerprofilesctl set "$(cat /run/hayashi-shell-backpack.profile)" || true
+            fi
+            rm -f /run/hayashi-shell-backpack.profile
+          '';
+        };
+      };
+
+      # Anyone at the machine can switch backpack mode on and off.
+      security.polkit.enable = true;
+      security.polkit.extraConfig = ''
+        polkit.addRule(function (action, subject) {
+          if (action.id == "org.freedesktop.systemd1.manage-units" &&
+              action.lookup("unit") == "hayashi-shell-backpack.service" &&
+              (action.lookup("verb") == "start" || action.lookup("verb") == "stop") &&
+              subject.local && subject.active) {
+            return polkit.Result.YES;
+          }
+        });
+      '';
     })
 
     (lib.mkIf cfg.bootSplash.enable {

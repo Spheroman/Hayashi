@@ -71,8 +71,8 @@ Item {
                 details: soundDetails };
         }
         case "power": return {
-            icon: profile === PowerProfile.PowerSaver ? "eco" : profile === PowerProfile.Performance ? "bolt" : "speed",
-            label: "Power", detail: profileName, on: profile !== PowerProfile.Balanced,
+            icon: Backpack.active ? "backpack" : profile === PowerProfile.PowerSaver ? "eco" : profile === PowerProfile.Performance ? "bolt" : "speed",
+            label: "Power", detail: Backpack.active ? "Backpack mode" : profileName, on: Backpack.active || profile !== PowerProfile.Balanced,
             details: powerDetails };
         case "theme": return {
             icon: Settings.dark ? "dark_mode" : "light_mode", label: "Theme", on: Settings.dark,

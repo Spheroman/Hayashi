@@ -136,6 +136,20 @@ ColumnLayout {
         }
     }
 
+    DetailRow {
+        Layout.fillWidth: true
+        Layout.topMargin: 4
+        visible: Backpack.available
+        icon: "backpack"
+        iconFilled: Backpack.active
+        selected: Backpack.active
+        title: "Backpack mode"
+        subtitle: Backpack.switching ? (Backpack.active ? "Turning on…" : "Turning off…")
+            : Backpack.active ? "On: no sleep, runs slow and cool; the lid locks"
+            : "Keep working with the lid closed, in a bag"
+        onClicked: if (!Backpack.switching) Backpack.setActive(!Backpack.active)
+    }
+
     // ---- Battery ----
 
     Label {
